@@ -6,6 +6,15 @@ A GPT-led development-team operating system derived from the proven DEVDEPARTMEN
 
 **Bootstrap / architecture phase.** Not production-ready yet.
 
+The initial source package lives under `src/codexdevteam_kernel/`. It contains
+provider-neutral coordination policy, a bounded Codex runtime adapter, and a
+parked-by-default, lease-fenced dispatch cycle. It is an early implementation,
+not a production-ready autonomous team. Bootstrap CI runs the kernel contract
+suite on Ubuntu and Windows. Cross-platform CI has been configured but still
+needs a hosted run before platform parity is verified.
+The matrix builds and installs the package, smoke-checks its installed CLI
+entry points, imports the package, and runs the contract suite.
+
 ## Lineage
 
 CODEXDEVTEAM is a sibling of DEVDEPARTMENT, not a replacement for it.
@@ -30,6 +39,22 @@ Default topology:
 
 Concrete model IDs are configuration, not architecture.
 
+## Install into a project
+
+Install the package, inspect the target, then create an inactive installation:
+
+```powershell
+python -m pip install .
+codexdevteam inspect --project C:\Projects\MY-PROJECT
+codexdevteam init --project C:\Projects\MY-PROJECT
+codexdevteam upgrade --project C:\Projects\MY-PROJECT
+codexdevteam usage --state-db C:\Projects\MY-PROJECT\.codexdevteam\project\state.sqlite
+```
+
+`init` supports fresh projects and non-destructive DEVDEPARTMENT sidecars. It
+does not take HEAD authority or activate supervision. Existing installations
+and ambiguous dual installations require an explicit upgrade or handover path.
+
 ## Core invariants
 
 1. Exactly one active HEAD per project.
@@ -49,4 +74,14 @@ Concrete model IDs are configuration, not architecture.
 - `docs/ARCHITECTURE.md`
 - `docs/INTEROPERABILITY.md`
 - `docs/ONBOARDING.md`
+- `docs/TEST_RUNNER.md`
+- `docs/CODEX_HOOKS.md`
+- `docs/CONTROL.md`
+- `docs/EVIDENCE_MEMORY.md`
+- `docs/USAGE_REPORTING.md`
+- `docs/PUBLISHING.md`
+- `docs/PLAN_ARCHIVE.md`
+- `docs/FAST_TIER.md`
+- `docs/COMPATIBILITY_MATRIX.md`
+- `docs/RUNTIME_SMOKE.md`
 - `ROADMAP.md`
