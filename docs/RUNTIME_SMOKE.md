@@ -1,4 +1,21 @@
-# Local runtime smoke evidence
+# Runtime and CI evidence
+
+## Hosted CI matrix — 2026-10-02
+
+- Run: [37024696603](https://github.com/alboogycOdR/CODEXDEVTEAM/actions/runs/37024696603)
+  at commit `ba39acc4d7590b411e00e8f0941de2ef71fda8db`.
+- Result: all four jobs passed: Ubuntu and Windows on Python 3.11 and 3.12.
+  Each job built and installed the package, checked all command entry points,
+  exercised the fail-closed Codex hook, imported the package, and passed the
+  full 243-test contract suite.
+- The first run exposed a Windows test assertion comparing an 8.3 temp path to
+  its resolved path. The assertion now compares resolved paths; the full
+  matrix passed on the rerun.
+- GitHub emitted informational runner notices for Node.js 20 compatibility in
+  the pinned actions and the scheduled `ubuntu-latest` migration to Ubuntu 26.
+
+This is hosted bootstrap CI evidence. It does not establish real-project
+interoperability, process-fenced handover, or pilot readiness.
 
 ## Current Windows contract suite — 2026-10-02
 
@@ -184,7 +201,8 @@
   the virtual machine or container did not respond.
 - This is an environment startup failure, not a test failure. The current
   Debian-container full-suite pass above remains supplementary Linux evidence;
-  Ubuntu and hosted CI remain unverified.
+  Ubuntu WSL remains unverified. Hosted CI subsequently passed as recorded
+  above.
 
 ## Ubuntu WSL retry after Ubuntu container run — 2026-10-02
 
@@ -192,7 +210,8 @@
   container had exited. WSL again failed before starting Python with
   `Wsl/Service/CreateInstance/HCS_E_CONNECTION_TIMEOUT`.
 - No test ran during this attempt. The successful Ubuntu 24.04 container run
-  above verifies Ubuntu userspace; WSL startup and hosted CI remain unverified.
+  above verifies Ubuntu userspace; WSL startup remains unverified. Hosted CI
+  subsequently passed as recorded above.
 ## Codex CLI adapter — 2026-10-01
 
 - Host: Windows, repository checkout `C:\Projects\CODEXDEVTEAM`.

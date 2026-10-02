@@ -33,7 +33,8 @@
 - [x] Verify the runtime firewall capability set locally with normal Codex hook trust, CONTROL drain, isolated task worktree, post-run territory gate, and strict-receipt dispatch; keep manifest-deferred GateGuard prompts out.
 - [x] Configure Windows + Ubuntu CI matrix.
 - [x] Verify the current kernel suite on both platforms locally (Windows and Ubuntu 24.04 container pass; Ubuntu WSL startup timed out while Docker Desktop was running).
-- [ ] Obtain a hosted CI run before enabling autonomous supervision.
+- [x] Obtain a hosted CI run before enabling autonomous supervision (all four
+  Ubuntu/Windows × Python 3.11/3.12 jobs passed; see `docs/RUNTIME_SMOKE.md`).
 
 ### Implementation status — 2026-10-02
 
@@ -65,7 +66,8 @@ POSIX process-group coverage.
 Earlier runs passed 210 tests as root and as an unprivileged UID, before those
 latest additions; a focused current cancellation/schema slice also passed 24
 tests with one Windows-only skip. Debian container evidence is supplementary
-Linux evidence; Ubuntu WSL and hosted CI are still outstanding.
+Linux evidence; Ubuntu WSL remains outstanding. Hosted CI passed on Ubuntu and
+Windows with Python 3.11 and 3.12 (run 37024696603).
 
 The verification gate now runs configured commands on both the task SHA and a
 temporary detached baseline worktree, attributes exact matching failures, and
@@ -136,11 +138,11 @@ disabled.
 These changes do not complete the corresponding roadmap items: Markdown
 write-back/interoperability, automatic cross-platform orphan reaping and
 lifecycle management, external capacity telemetry and automatic failover, and
-live interoperability/pilot work remain outstanding. Local Windows and Ubuntu/WSL
-results are not substitutes for hosted CI results. The HEAD lease/state database
+live interoperability/pilot work remain outstanding. Hosted CI passed on Ubuntu
+and Windows with Python 3.11 and 3.12. The HEAD lease/state database
 is a local-filesystem prototype and is not verified for multi-host or network
-filesystems. It now records SQLite schema version 6 transactionally, upgrades
-the additive v1-to-v6 handover provenance, opaque-context, process-termination,
+filesystems. It now records SQLite schema version 7 transactionally, upgrades
+the additive v1-to-v7 handover provenance, opaque-context, process-termination,
 signed cancellation-recovery, and maker process-identity
 evidence fields, validates required table
 layouts, adopts compatible unversioned state without rewriting

@@ -10,8 +10,9 @@ The initial source package lives under `src/codexdevteam_kernel/`. It contains
 provider-neutral coordination policy, a bounded Codex runtime adapter, and a
 parked-by-default, lease-fenced dispatch cycle. It is an early implementation,
 not a production-ready autonomous team. Bootstrap CI runs the kernel contract
-suite on Ubuntu and Windows. Cross-platform CI has been configured but still
-needs a hosted run before platform parity is verified.
+suite on Ubuntu and Windows. The hosted matrix passed on Ubuntu and Windows
+for Python 3.11 and 3.12 in
+[run 37024696603](https://github.com/alboogycOdR/CODEXDEVTEAM/actions/runs/37024696603).
 The matrix builds and installs the package, smoke-checks its installed CLI
 entry points, imports the package, and runs the contract suite.
 
