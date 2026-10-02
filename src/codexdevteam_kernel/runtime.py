@@ -234,9 +234,14 @@ class CodexExecAdapter:
         runtime_temp = tempfile.TemporaryDirectory(prefix="codexdevteam-invocation-")
         isolated_temp = str(Path(runtime_temp.name).resolve(strict=True))
         env.update({"TEMP": isolated_temp, "TMP": isolated_temp, "TMPDIR": isolated_temp})
+        checker_message_path = None
+        if request.purpose == "checker":
+            checker_message_path = Path(isolated_temp) / "last-message.txt"
+            argv[-1:-1] = ["--output-last-message", str(checker_message_path)]
         started_at = time.time()
         started = time.monotonic()
         status, exit_code, stdout, stderr = "failed", None, "", ""
+        usage_output = ""
         cancel_method = None
         cancel_verified = None
         cancel_exit_code = None
@@ -244,6 +249,7 @@ class CodexExecAdapter:
             try:
                 (exit_code, stdout, stderr, cancel_method, cancel_verified,
                  cancel_exit_code) = _run_invocation_process(argv, prompt, cwd, env, request)
+                usage_output = stdout
                 if cancel_verified is False:
                     status = "termination_unverified"
                     stderr = (stderr + "\nWindows invocation containment cleanup was not verified.").strip()
@@ -277,12 +283,20 @@ class CodexExecAdapter:
             except OSError as exc:
                 status = "launch_failed"
                 stderr = str(exc)
+            if request.purpose == "checker" and status == "succeeded":
+                try:
+                    stdout = checker_message_path.read_text(encoding="utf-8")
+                except OSError:
+                    stdout = ""
+                if not stdout.strip():
+                    status, exit_code = "failed", 1
+                    stderr = (stderr + "\nCodex did not produce its required final checker message.").strip()
         finally:
             runtime_temp.cleanup()
         duration = time.monotonic() - started
         stdout = _redact(stdout)
         stderr = _redact(stderr)
-        usage = _codex_usage(stdout) if request.identity.runtime == "codex" else None
+        usage = _codex_usage(usage_output or stdout) if request.identity.runtime == "codex" else None
         output_digest = hashlib.sha256((stdout + stderr).encode("utf-8", errors="replace")).hexdigest()
         combined_length = len(stdout) + len(stderr)
         truncated = combined_length > request.output_limit_chars

@@ -15,7 +15,7 @@ class TaskState(StrEnum):
 _TRANSITIONS: dict[TaskState, frozenset[TaskState]] = {
     TaskState.PENDING: frozenset({TaskState.CLAIMED}),
     TaskState.CLAIMED: frozenset({TaskState.IN_PROGRESS, TaskState.BLOCKED}),
-    TaskState.IN_PROGRESS: frozenset({TaskState.NEEDS_REVIEW, TaskState.BLOCKED}),
+    TaskState.IN_PROGRESS: frozenset({TaskState.CLAIMED, TaskState.NEEDS_REVIEW, TaskState.BLOCKED}),
     TaskState.NEEDS_REVIEW: frozenset({TaskState.IN_PROGRESS, TaskState.DONE, TaskState.BLOCKED}),
     TaskState.BLOCKED: frozenset({TaskState.PENDING, TaskState.IN_PROGRESS}),
     TaskState.DONE: frozenset(),
@@ -36,6 +36,8 @@ def allowed_transition(source: TaskState, target: TaskState, *,
         return False
     if source is TaskState.PENDING and target is TaskState.CLAIMED:
         return assigned_worker or head_authority
+    if source is TaskState.IN_PROGRESS and target is TaskState.CLAIMED:
+        return head_authority
     if source in {TaskState.CLAIMED, TaskState.IN_PROGRESS} and target in {
         TaskState.IN_PROGRESS, TaskState.NEEDS_REVIEW, TaskState.BLOCKED
     }:

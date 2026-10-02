@@ -408,22 +408,58 @@ class RuntimeAdapterTests(unittest.TestCase):
 
     @patch("codexdevteam_kernel.runtime.subprocess.Popen")
     def test_codex_adapter_uses_configured_model_read_only_and_bounded_output(self, run):
-        run.return_value = self.process(stdout="answer longer than limit")
+        process = self.process(stdout='{"type":"turn.completed"}')
+
+        def launch(argv, **kwargs):
+            output_path = Path(argv[argv.index("--output-last-message") + 1])
+            output_path.write_text("answer longer than limit", encoding="utf-8")
+            return process
+
+        run.side_effect = launch
         result = CodexExecAdapter("codex-test").invoke(self.request())
         argv = run.call_args.args[0]
         kwargs = run.call_args.kwargs
         self.assertIn("configured-model", argv)
+        self.assertIn("--output-last-message", argv)
         self.assertIn('model_reasoning_effort="high"', argv)
         self.assertIn("read-only", argv)
         self.assertEqual(argv[-1], "-")
-        self.assertTrue(run.return_value.communicate.call_args.kwargs["input"].startswith(
+        self.assertTrue(process.communicate.call_args.kwargs["input"].startswith(
             "Review the task result"))
         self.assertIn("CODEXDEVTEAM REVIEW BINDING",
-                      run.return_value.communicate.call_args.kwargs["input"])
+                      process.communicate.call_args.kwargs["input"])
         self.assertFalse(kwargs["shell"])
         self.assertTrue(result.truncated)
         self.assertEqual(len(result.stdout) + len(result.stderr), 12)
         self.assertEqual(result.status, "succeeded")
+
+    @patch("codexdevteam_kernel.runtime.subprocess.Popen")
+    def test_checker_uses_plain_last_message_and_keeps_usage_from_jsonl(self, popen):
+        process = self.process(stdout=(
+            '{"type":"turn.completed","usage":{"input_tokens":12,"output_tokens":4,'
+            '"input_tokens_details":{"cached_tokens":3}}}\n'
+        ))
+
+        def launch(argv, **kwargs):
+            output_path = Path(argv[argv.index("--output-last-message") + 1])
+            output_path.write_text('{"decision":"approved"}', encoding="utf-8")
+            return process
+
+        popen.side_effect = launch
+        result = CodexExecAdapter("codex-test").invoke(self.request(output_limit_chars=1000))
+        self.assertEqual(result.stdout, '{"decision":"approved"}')
+        self.assertEqual((result.input_tokens, result.output_tokens, result.cached_input_tokens),
+                         (12, 4, 3))
+        self.assertEqual(result.status, "succeeded")
+        self.assertFalse(Path(popen.call_args.kwargs["env"]["TMPDIR"]).exists())
+
+    @patch("codexdevteam_kernel.runtime.subprocess.Popen")
+    def test_checker_fails_closed_when_codex_produces_no_last_message(self, popen):
+        popen.return_value = self.process(stdout='{"type":"turn.completed"}')
+        result = CodexExecAdapter("codex-test").invoke(self.request(output_limit_chars=1000))
+        self.assertEqual(result.status, "failed")
+        self.assertEqual(result.exit_code, 1)
+        self.assertIn("required final checker message", result.stderr)
 
     @patch("codexdevteam_kernel.runtime.subprocess.Popen")
     def test_codex_adapter_redacts_secret_like_output_and_filters_environment(self, run):
@@ -952,6 +988,17 @@ class SupervisorTests(unittest.TestCase):
 
     def tearDown(self):
         self.temp.cleanup()
+
+    def test_requeue_requires_latest_changes_requested_review(self):
+        task = TaskRecord("TASK-REQUEUE", "Repair reviewed task", TaskState.IN_PROGRESS,
+                          "builder", "medium", ("src/**",), maker_identity={
+                              "unit_id": "builder", "runtime": "codex", "model": "builder-model"})
+        self.store.seed_task(self.lease, task, event_id="seed-requeue", now=101)
+        self.store.set_supervisor_mode(self.lease, "running", event_id="run-requeue", now=102)
+        with self.assertRaisesRegex(ValueError, "latest task review"):
+            self.supervisor.requeue_changes_requested_task(
+                self.lease, task.task_id, event_id="requeue-without-review", now=103)
+        self.assertEqual(self.store.get_task(task.task_id).state, TaskState.IN_PROGRESS)
 
     def test_staged_historical_dependency_allows_dispatch_without_faking_done_task(self):
         task = TaskRecord("TASK-AFTER-HANDOVER", "Continue translated work",

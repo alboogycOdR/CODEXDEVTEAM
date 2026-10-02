@@ -860,6 +860,31 @@ class Supervisor:
             )
         return applied
 
+    def requeue_changes_requested_task(self, lease: HeadLease, task_id: str, *,
+                                       event_id: str, now: float | None = None) -> bool:
+        """Return a reviewed task to its same maker, gated by the latest review."""
+        if self.store.get_supervisor_mode()["mode"] != "running":
+            raise ValueError("task requeue requires supervisor running mode")
+        task = self.store.get_task(task_id)
+        if task is None or task.state is not TaskState.IN_PROGRESS or not task.assigned_worker:
+            raise ValueError("only an in-progress assigned task can be requeued")
+        reviews = [event["payload"] for event in self.store.events()
+                   if event["payload"].get("type") == "task.reviewed"
+                   and event["payload"].get("task_id") == task_id]
+        if (not reviews or reviews[-1].get("decision") != "changes_requested"
+                or reviews[-1].get("maker_identity") != task.maker_identity):
+            raise ValueError("requeue requires the latest task review to request changes")
+        if not task.maker_identity or task.maker_identity.get("unit_id") != task.assigned_worker:
+            raise ValueError("requeue requires the original maker identity snapshot")
+        if any(other.task_id != task_id and other.assigned_worker == task.assigned_worker
+               and other.state in {TaskState.CLAIMED, TaskState.IN_PROGRESS, TaskState.NEEDS_REVIEW}
+               for other in self.store.list_tasks()):
+            raise ValueError("maker already has another active task")
+        return self.store.transition_task(
+            lease, task_id, TaskState.CLAIMED, event_id=event_id,
+            expected_state=TaskState.IN_PROGRESS, now=now,
+        )
+
     def invoke_claimed_task(self, lease: HeadLease, task_id: str, *,
                             invocation_id: str, prompt: str, base_ref: str,
                             worktrees: GitWorktreeManager,
