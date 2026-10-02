@@ -680,7 +680,8 @@ class RuntimeAdapterTests(unittest.TestCase):
                                    control_outbox_path=str(outbox))
             CodexExecAdapter("codex-test").invoke(request)
             environment = run.call_args.kwargs["env"]
-            self.assertEqual(Path(environment["CODEXDEVTEAM_CONTROL_OUTBOX"]), outbox)
+            self.assertEqual(Path(environment["CODEXDEVTEAM_CONTROL_OUTBOX"]).resolve(strict=True),
+                             outbox.resolve(strict=True))
             self.assertTrue(outbox.is_dir())
 
     @patch("codexdevteam_kernel.runtime.subprocess.Popen")
