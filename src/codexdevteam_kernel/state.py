@@ -2232,6 +2232,87 @@ class StateStore:
             head_sha=head_sha, now=now, projection=None,
         )
 
+    def transition_task_to_review_from_gate(self, lease: HeadLease, gate: GateResult, *,
+                                            event_id: str,
+                                            project_root: str | Path | None = None,
+                                            now: float | None = None) -> bool:
+        """Move an in-progress task to review using HEAD-registered gate evidence.
+
+        The maker cannot know the host-created commit SHA or its gate receipt.
+        This transition lets HEAD attach the gate's registered test evidence
+        without attributing a CONTROL message to the maker.
+        """
+        if not isinstance(gate, GateResult) or gate.status != "passed":
+            raise ValueError("a passed gate result is required")
+        test_run = gate.test_run_result
+        if (not isinstance(test_run, TestRunResult) or not test_run.passed
+                or test_run.sha.lower() != gate.sha.lower()):
+            raise ValueError("gate must include passed test evidence for its exact SHA")
+        evidence_ref = test_run.evidence_ref
+        if not self.has_registered_gate(lease, gate.task_id, gate.sha,
+                                        gate.fingerprint, now=now):
+            raise LeaseError("task review transition requires the unchanged HEAD-registered gate")
+        self.apply_pending_plan_projections(lease, now=now)
+        current = time.time() if now is None else now
+        db = self._connect()
+        try:
+            db.execute("BEGIN IMMEDIATE")
+            self._assert_current(db, lease, current)
+            row = db.execute("SELECT payload_json FROM tasks WHERE task_id=?",
+                             (gate.task_id,)).fetchone()
+            if row is None:
+                raise LeaseError(f"unknown task: {gate.task_id}")
+            task = TaskRecord.from_dict(json.loads(row["payload_json"]))
+            if task.state is not TaskState.IN_PROGRESS or not task.assigned_worker:
+                raise LeaseError("only an in-progress assigned task can move to review")
+            if not self._has_passed_test_run(db, gate.task_id, gate.sha, (evidence_ref,)):
+                raise LeaseError("host gate test evidence is not registered for this SHA")
+            if not allowed_transition(task.state, TaskState.NEEDS_REVIEW,
+                                     head_authority=True):
+                raise LeaseError("illegal task transition to needs_review")
+            test_evidence = tuple(dict.fromkeys((*task.test_evidence, evidence_ref)))
+            updated = replace(task, state=TaskState.NEEDS_REVIEW,
+                              test_evidence=test_evidence)
+            projection = (_prepare_plan_projection(
+                project_root, task.task_id, updated.state, task.assigned_worker,
+            ) if project_root is not None else None)
+            payload = {"type": "task.gate_ready_for_review", "task_id": task.task_id,
+                       "head_sha": gate.sha, "gate_fingerprint": gate.fingerprint,
+                       "test_evidence": list(test_evidence)}
+            payload_json = json.dumps(payload, sort_keys=True, separators=(",", ":"))
+            if self._event_exists(db, event_id, payload_json):
+                db.commit()
+                return False
+            if projection is not None:
+                pending = db.execute(
+                    "SELECT event_id FROM plan_projection_outbox WHERE project_root=? LIMIT 1",
+                    (projection["project_root"],),
+                ).fetchone()
+                if pending is not None:
+                    raise LeaseError(
+                        f"PLAN projection {pending['event_id']} must be recovered before another write"
+                    )
+            db.execute("UPDATE tasks SET payload_json=?, updated_at=? WHERE task_id=?",
+                       (json.dumps(updated.to_dict(), sort_keys=True, separators=(",", ":")),
+                        current, task.task_id))
+            self._insert_event(db, event_id, lease.generation, payload_json, current)
+            if projection is not None:
+                db.execute(
+                    "INSERT INTO plan_projection_outbox VALUES(?, ?, ?, ?, ?, ?, ?)",
+                    (event_id, projection["project_root"], projection["expected_sha256"],
+                     projection["projected_sha256"], projection["projected_text"],
+                     current, lease.generation),
+                )
+            db.commit()
+            if projection is not None:
+                self._apply_plan_projection(event_id, projection)
+            return True
+        except Exception:
+            db.rollback()
+            raise
+        finally:
+            db.close()
+
     def transition_task_with_plan(self, lease: HeadLease, task_id: str,
                                   target: TaskState, *, event_id: str,
                                   expected_state: TaskState,

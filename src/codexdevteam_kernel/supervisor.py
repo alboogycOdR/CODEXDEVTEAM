@@ -698,6 +698,13 @@ class Supervisor:
             self.store, lease, worktree / ".codexdevteam" / "control" / "outbox",
             project_root=project_root, now=now,
         )
+        task = self.store.get_task(gate.task_id)
+        if gate.status == "passed" and task is not None and task.state is TaskState.IN_PROGRESS:
+            self.store.transition_task_to_review_from_gate(
+                lease, gate,
+                event_id=f"gate-ready-for-review:{gate.task_id}:{gate.sha}",
+                project_root=project_root, now=now,
+            )
         return replace(cycle, control_applied=control["applied"],
                        control_rejected=control["rejected"])
 

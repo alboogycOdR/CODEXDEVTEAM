@@ -1863,6 +1863,45 @@ class SupervisorTests(unittest.TestCase):
         self.assertEqual(finalized.control_rejected, ())
         self.assertEqual(self.store.get_task(task.task_id).state, TaskState.NEEDS_REVIEW)
 
+    @unittest.skipUnless(os.name == "nt", "Windows Job Object host-commit integration")
+    def test_host_gate_moves_task_to_review_without_maker_sha_report(self):
+        from dataclasses import replace
+        from codexdevteam_kernel.host_commit import QuiescenceProof
+
+        project, base, task = self.prepare_claimed_maker("TASK-105-GATE-REVIEW")
+        manager = GitWorktreeManager(project, Path(self.temp.name) / "managed-105-gate-review")
+
+        class CommittingMaker:
+            def invoke(inner_self, request):
+                result = self.FakeInvocationAdapter().invoke(request)
+                output = Path(request.working_directory) / "src" / "change.py"
+                output.parent.mkdir(parents=True, exist_ok=True)
+                output.write_text("answer = 43\\n", encoding="utf-8")
+                return replace(result, quiescence_proof=QuiescenceProof(
+                    "windows", "windows_job_object", True, 0, "fixture"))
+
+        cycle = self.supervisor.invoke_claimed_task(
+            self.lease, task.task_id, invocation_id="maker:105-gate-review",
+            prompt="implement", base_ref=base, worktrees=manager,
+            adapters={"codex": CommittingMaker()}, defer_control_drain=True, now=104)
+        self.assertEqual(cycle.host_commit.status, "committed", cycle.host_commit.reasons)
+        gate = GateRunner(project, Path(self.temp.name) / "gate-artifacts-105-review").run(
+            self.store.get_task(task.task_id), cycle.worktree_path,
+            expected_sha=cycle.host_commit.sha, base_ref=base,
+            commands={name: [sys.executable, "-c", "pass"]
+                      for name in ("build", "typecheck", "test_full")},
+            active_tasks=tuple(self.store.list_tasks()),
+        )
+        self.assertEqual(gate.status, "passed",
+                         {name: check.summary for name, check in gate.checks.items()})
+
+        self.supervisor.finalize_maker_gate(
+            self.lease, cycle, gate, attempt_event_id="gate-maker-105-review", now=105)
+
+        reviewed = self.store.get_task(task.task_id)
+        self.assertEqual(reviewed.state, TaskState.NEEDS_REVIEW)
+        self.assertIn(gate.test_run_result.evidence_ref, reviewed.test_evidence)
+
     def test_park_wins_atomically_before_maker_runtime_launch(self):
         project, base, task = self.prepare_claimed_maker("TASK-101")
         manager = GitWorktreeManager(project, Path(self.temp.name) / "managed-101")
