@@ -289,6 +289,7 @@ class RuntimeAdapterTests(unittest.TestCase):
         job = Mock()
         job.name = "Global\\CODEXDEVTEAM-" + "a" * 32
         job.active_process_count.return_value = 0
+        job.close.return_value = True
         create_job.return_value = job
         capture.return_value = ProcessIdentity(123, "fixture:started", 123)
         identities = []
@@ -301,6 +302,9 @@ class RuntimeAdapterTests(unittest.TestCase):
         )
         result = CodexExecAdapter("codex-test").invoke(request)
         self.assertEqual(result.status, "succeeded")
+        self.assertEqual(result.quiescence_proof is not None, os.name == "nt")
+        if result.quiescence_proof is not None:
+            self.assertTrue(result.quiescence_proof.verified)
         self.assertEqual(identities, [capture.return_value])
         self.assertEqual(identities[0].containment_ref,
                          job.name if os.name == "nt" else None)
@@ -327,6 +331,12 @@ class RuntimeAdapterTests(unittest.TestCase):
         self.assertEqual(result[0], 0)
         self.assertEqual(result[3], "windows_job_object")
         self.assertTrue(result[4])
+        self.assertEqual(len(result), 7)
+        # The child is deliberately left alive; cleanup kills it and the proof
+        # must reflect the post-cleanup zero count, not the initial observation.
+        self.assertIsNotNone(result[6])
+        self.assertTrue(result[6].verified)
+        self.assertEqual(result[6].active_after_exit, 0)
         self.assertEqual(len(identities), 1)
         self.assertRegex(identities[0].containment_ref or "",
                          r"^Global\\CODEXDEVTEAM-[0-9a-f]{32}$")
@@ -1688,6 +1698,8 @@ class SupervisorTests(unittest.TestCase):
             memory_injection=injection, now=104)
         self.assertTrue(Path(result.worktree_path).is_dir())
         self.assertEqual(result.invocation.status, "succeeded")
+        self.assertEqual(result.host_commit.status, "refused")
+        self.assertEqual(result.host_commit.reasons[0].code, "QUIESCENCE_UNPROVEN")
         self.assertEqual(adapter.requests[0].working_directory, result.worktree_path)
         self.assertNotEqual(adapter.requests[0].state_db_path, str(self.store.path.resolve()))
         snapshot = Path(adapter.requests[0].state_db_path)
@@ -1713,6 +1725,79 @@ class SupervisorTests(unittest.TestCase):
                 self.lease, task.task_id, invocation_id="maker:100-replay", prompt="again",
                 base_ref=base, worktrees=manager, adapters={"codex": adapter}, now=105)
         self.assertEqual(len(adapter.requests), 1)
+
+    @unittest.skipUnless(os.name == "nt", "Windows host-commit integration")
+    def test_supervisor_host_commits_only_after_windows_job_quiescence_proof(self):
+        from dataclasses import replace
+        from codexdevteam_kernel.host_commit import QuiescenceProof
+
+        project, base, task = self.prepare_claimed_maker("TASK-100-HOST-COMMIT")
+        manager = GitWorktreeManager(project, Path(self.temp.name) / "managed-host-commit")
+        delegate = self.FakeInvocationAdapter()
+
+        class QuiescentMaker:
+            def invoke(self, request):
+                result = delegate.invoke(request)
+                output = Path(request.working_directory) / "src" / "host-committed.py"
+                output.parent.mkdir(parents=True, exist_ok=True)
+                output.write_text("value = 1\n", encoding="utf-8")
+                return replace(result, quiescence_proof=QuiescenceProof(
+                    "windows", "windows_job_object", True, 0,
+                    "Windows Job Object fixture proof"))
+
+        cycle = self.supervisor.invoke_claimed_task(
+            self.lease, task.task_id, invocation_id="maker:host-commit",
+            prompt="implement", base_ref=base, worktrees=manager,
+            adapters={"codex": QuiescentMaker()}, now=104)
+        self.assertEqual(cycle.host_commit.status, "committed")
+        self.assertEqual(cycle.host_commit.paths, ("src/host-committed.py",))
+        self.assertEqual(cycle.host_commit.sha,
+                         subprocess.run(["git", "-C", str(project), "rev-parse",
+                                         f"refs/heads/codexdevteam/{task.task_id}"],
+                                        capture_output=True, text=True, check=True).stdout.strip())
+        self.assertEqual(subprocess.run(
+            ["git", "-C", cycle.worktree_path, "status", "--porcelain"],
+            capture_output=True, text=True, check=True).stdout, "")
+        gate_task = self.store.get_task(task.task_id)
+        gate = GateRunner(project, Path(self.temp.name) / "host-commit-gate").run(
+            gate_task, cycle.worktree_path, expected_sha=cycle.host_commit.sha,
+            base_ref=base,
+            commands={name: [sys.executable, "-c", "pass"]
+                      for name in ("build", "typecheck", "test_full")},
+            active_tasks=tuple(self.store.list_tasks()),
+        )
+        self.assertEqual(gate.status, "passed")
+        self.assertEqual(gate.sha, cycle.host_commit.sha)
+
+    def test_supervisor_keeps_control_pending_when_host_commit_refuses(self):
+        from codexdevteam_kernel.control_queue import submit_control
+
+        project, base, task = self.prepare_claimed_maker("TASK-100-COMMIT-REFUSED")
+        manager = GitWorktreeManager(project, Path(self.temp.name) / "managed-commit-refused")
+        delegate = self.FakeInvocationAdapter()
+
+        class ReportingMaker:
+            def invoke(self, request):
+                result = delegate.invoke(request)
+                submit_control(
+                    Path(request.control_outbox_path), task_id=task.task_id,
+                    worker_id="builder", event_id="uncommitted-report",
+                    requested_state="needs_review",
+                )
+                output = Path(request.working_directory) / "src" / "uncommitted.py"
+                output.parent.mkdir(parents=True, exist_ok=True)
+                output.write_text("value = 2\n", encoding="utf-8")
+                return result
+
+        cycle = self.supervisor.invoke_claimed_task(
+            self.lease, task.task_id, invocation_id="maker:commit-refused",
+            prompt="implement", base_ref=base, worktrees=manager,
+            adapters={"codex": ReportingMaker()}, now=104)
+        self.assertEqual(cycle.host_commit.status, "refused")
+        self.assertEqual(cycle.control_applied, ())
+        self.assertEqual(self.store.get_task(task.task_id).state, TaskState.IN_PROGRESS)
+        outbox = Path(cycle.worktree_path) / ".codexdevteam" / "control" / "outbox"
+        self.assertTrue((outbox / "uncommitted-report.json").is_file())
 
     def test_deferred_maker_control_drains_only_after_head_gate_registration(self):
         from codexdevteam_kernel.control_queue import submit_control

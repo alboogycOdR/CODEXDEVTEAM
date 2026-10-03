@@ -19,6 +19,7 @@ from .dispatch import (CapacityObservation, DispatchError, TaskClassPolicy,
 from .control_queue import drain_control_outbox
 from .gate import GateResult
 from .health import StagnationSample, stale_signal
+from .host_commit import HostCommitResult, QuiescenceProof, RefusalReason, host_commit
 from .memory import EvidenceMemory, FactInjection, render_fact_injection
 from .process_identity import ProcessIdentity, observe_process_identity
 from .registry import WorkerRegistry
@@ -97,6 +98,7 @@ class TaskInvocationCycleResult:
     invocation: InvocationResult
     control_applied: tuple[str, ...] = ()
     control_rejected: tuple[str, ...] = ()
+    host_commit: HostCommitResult | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -939,11 +941,12 @@ class Supervisor:
         if adapter is None or not callable(getattr(adapter, "invoke", None)):
             raise ValueError(f"no invocation adapter for runtime {worker.identity.runtime}")
 
-        worktree = worktrees.create(task.task_id,
-                                    f"codexdevteam/{task.task_id}", base_ref,
-                                    worktree_copy=worktree_copy)
+        worktree_info = worktrees.create(task.task_id,
+                                         f"codexdevteam/{task.task_id}", base_ref,
+                                         worktree_copy=worktree_copy)
+        worktree = worktree_info.path
         status = subprocess.run(
-            ["git", "-C", str(worktree.path), "status", "--porcelain", "--untracked-files=all"],
+            ["git", "-C", str(worktree), "status", "--porcelain", "--untracked-files=all"],
             capture_output=True, text=True, check=False,
         )
         if status.returncode or status.stdout.strip():
@@ -956,7 +959,7 @@ class Supervisor:
         if not database.is_file():
             raise ValueError("maker state database must be a regular file")
         git_dir_result = subprocess.run(
-            ["git", "-C", str(worktree.path), "rev-parse", "--absolute-git-dir"],
+            ["git", "-C", str(worktree), "rev-parse", "--absolute-git-dir"],
             capture_output=True, text=True, check=False,
         )
         if git_dir_result.returncode:
@@ -978,11 +981,11 @@ class Supervisor:
             request = request_for_worker(
                 self.registry, worker.identity.unit_id,
                 invocation_id=invocation_id, task_id=task_id, purpose="maker",
-                prompt=effective_prompt, working_directory=str(worktree.path),
+                prompt=effective_prompt, working_directory=str(worktree),
                 timeout_seconds=timeout_seconds, writable=True,
                 allowed_environment=allowed_environment,
                 state_db_path=str(snapshot),
-                control_outbox_path=str(worktree.path / ".codexdevteam" / "control" / "outbox"),
+                control_outbox_path=str(worktree / ".codexdevteam" / "control" / "outbox"),
                 cancellation_receipt_dir=str(self.store.cancellation_receipt_directory),
                 cancellation_token=cancellation_token,
                 on_process_start=lambda identity: self.store.record_task_invocation_process(
@@ -1023,15 +1026,39 @@ class Supervisor:
             result = replace(result, role=worker.identity.role)
         if memory_injection is not None and memory_injection.facts:
             result = replace(result, memory_injection_event_id=memory_injection.event_id)
+        commit_result = None
+        if result.status == "succeeded":
+            proof = result.quiescence_proof
+            if (os.name == "nt" and isinstance(proof, QuiescenceProof)
+                    and proof.platform == "windows"
+                    and proof.mechanism == "windows_job_object" and proof.verified):
+                commit_result = host_commit(
+                    worktrees.repository, worktree, task,
+                    task_branch=f"codexdevteam/{task.task_id}",
+                    expected_parent=worktree_info.head,
+                    invocation_id=invocation_id,
+                    quiescence=proof,
+                )
+            else:
+                commit_result = HostCommitResult(
+                    "refused",
+                    reasons=(RefusalReason(
+                        "QUIESCENCE_UNPROVEN",
+                        "successful maker has no verified Windows Job Object proof; no commit published",
+                    ),),
+                )
         self.store.record_invocation(lease, result, now=now)
-        control = ({"applied": (), "rejected": ()} if defer_control_drain else
+        control = ({"applied": (), "rejected": ()}
+                   if defer_control_drain or (
+                       commit_result is not None and commit_result.status == "refused") else
                    drain_control_outbox(
                        self.store, lease,
-                       worktree.path / ".codexdevteam" / "control" / "outbox", now=now,
+                       worktree / ".codexdevteam" / "control" / "outbox", now=now,
                    ))
         return TaskInvocationCycleResult(task_id, worker.identity.unit_id,
-                                         str(worktree.path), result,
-                                         control["applied"], control["rejected"])
+                                         str(worktree), result,
+                                         control["applied"], control["rejected"],
+                                         commit_result)
 
     def _invoke_under_lease(self, lease: HeadLease, adapter: InvocationAdapter,
                             request: InvocationRequest, *, now: float | None,

@@ -18,6 +18,7 @@ from .registry import WorkerRegistry
 from .secrets import find_secrets
 from .process_identity import ProcessIdentity, capture_process_identity
 from .termination import write_cancellation_receipt
+from .host_commit import QuiescenceProof
 
 
 _INVOCATION_ID = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.:-]{0,127}$")
@@ -119,6 +120,7 @@ class InvocationResult:
     process_tree_cancel_method: str | None = None
     process_tree_cancel_verified: bool | None = None
     process_tree_cancel_exit_code: int | None = None
+    quiescence_proof: QuiescenceProof | None = None
 
     def __post_init__(self) -> None:
         if not _INVOCATION_ID.fullmatch(self.invocation_id):
@@ -168,6 +170,10 @@ class InvocationResult:
             raise ValueError("reported_cost_usd must be finite and non-negative or null")
         if self.status == "succeeded" and self.exit_code != 0:
             raise ValueError("succeeded invocation must have exit code zero")
+        if self.quiescence_proof is not None:
+            if (self.purpose != "maker" or self.quiescence_proof.platform != "windows"
+                    or self.quiescence_proof.mechanism != "windows_job_object"):
+                raise ValueError("runtime quiescence proof must be for a Windows maker Job Object")
         if self.purpose == "checker" and (
             not self.review_sha or not re.fullmatch(r"[0-9a-fA-F]{40,64}", self.review_sha)
             or not self.gate_fingerprint
@@ -245,10 +251,12 @@ class CodexExecAdapter:
         cancel_method = None
         cancel_verified = None
         cancel_exit_code = None
+        quiescence_proof = None
         try:
             try:
                 (exit_code, stdout, stderr, cancel_method, cancel_verified,
-                 cancel_exit_code) = _run_invocation_process(argv, prompt, cwd, env, request)
+                 cancel_exit_code, quiescence_proof) = _run_invocation_process(
+                     argv, prompt, cwd, env, request)
                 usage_output = stdout
                 if cancel_verified is False:
                     status = "termination_unverified"
@@ -316,7 +324,8 @@ class CodexExecAdapter:
                                 cached_input_tokens=usage[2] if usage else None,
                                 process_tree_cancel_method=cancel_method,
                                 process_tree_cancel_verified=cancel_verified,
-                                process_tree_cancel_exit_code=cancel_exit_code)
+                                process_tree_cancel_exit_code=cancel_exit_code,
+                                quiescence_proof=quiescence_proof)
 
 
 class _InvocationCancelled(Exception):
@@ -341,7 +350,8 @@ class _ProcessIdentityPersistenceError(Exception):
 
 def _run_invocation_process(argv: list[str], prompt: str, cwd: Path,
                             env: dict[str, str], request: InvocationRequest
-                            ) -> tuple[int, str, str, str | None, bool | None, int | None]:
+                            ) -> tuple[int, str, str, str | None, bool | None, int | None,
+                                       QuiescenceProof | None]:
     windows = os.name == "nt"
     job = None
     kwargs = {
@@ -423,9 +433,18 @@ def _run_invocation_process(argv: list[str], prompt: str, cwd: Path,
                 cleanup_method = None
                 cleanup_verified = None
                 cleanup_exit_code = None
+                quiescence_proof = None
                 if job is not None:
                     try:
                         active_processes = job.active_process_count()
+                        if isinstance(active_processes, int) and not isinstance(active_processes, bool):
+                            quiescence_proof = QuiescenceProof(
+                                "windows", "windows_job_object", active_processes == 0,
+                                active_processes,
+                                "queried from the invocation's live Windows Job Object",
+                            )
+                        else:
+                            active_processes = -1
                     except OSError:
                         active_processes = -1
                     if active_processes != 0:
@@ -433,13 +452,28 @@ def _run_invocation_process(argv: list[str], prompt: str, cwd: Path,
                         cleanup_verified = (active_processes > 0
                                             and job.terminate_and_verify())
                         cleanup_exit_code = process.poll()
+                        if cleanup_verified:
+                            try:
+                                active_processes = job.active_process_count()
+                                cleanup_verified = (isinstance(active_processes, int)
+                                                    and not isinstance(active_processes, bool)
+                                                    and active_processes == 0)
+                                quiescence_proof = (QuiescenceProof(
+                                    "windows", "windows_job_object", True, 0,
+                                    "queried after Job Object cleanup",
+                                ) if cleanup_verified else None)
+                            except OSError:
+                                quiescence_proof = None
+                                cleanup_verified = False
                     close_verified = job.close()
                     job = None
                     if not close_verified and cleanup_verified is not True:
                         cleanup_method = "windows_job_object_close"
                         cleanup_verified = False
+                    if quiescence_proof is None or not quiescence_proof.verified or not close_verified:
+                        quiescence_proof = None
                 return (process.returncode, stdout or "", stderr or "", cleanup_method,
-                        cleanup_verified, cleanup_exit_code)
+                        cleanup_verified, cleanup_exit_code, quiescence_proof)
             except subprocess.TimeoutExpired:
                 first = False
                 continue

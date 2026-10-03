@@ -379,3 +379,111 @@ for strict mode until those capabilities are verified without the bypass.
   dispatch, or process-fenced handover. DEVDEPARTMENT remains the incumbent;
   do not activate CODEXDEVTEAM on this checkout while its active task and
   local changes remain unresolved.
+
+## Supervised disposable utility pilot — 2026-10-03
+
+- A fresh standalone `TextTidy` utility project was created under
+  `C:\Users\Nuburo\AppData\Local\Temp\codexdevteam-pilot-rerun-20261003`.
+  The installation marker remained inactive. The supervised task ran in a
+  separate Git worktree on branch `codexdevteam/TASK-TEXTTIDY-001`.
+- The live Codex maker implemented and corrected the text normalizer and CLI.
+  An independent Codex checker reviewed three committed SHAs, requested two
+  focused corrections, then approved final SHA
+  `dbdad75f927f6ee93a539ae059c003537beecc13`. The task reached `done`; the
+  supervisor was parked and its HEAD lease released.
+- The final SHA-bound gate passed SHA/clean-worktree, territory, secret scan,
+  build, typecheck, full tests, baseline build/typecheck/tests, and baseline
+  analysis. Reachability and mutation checks were not configured for this
+  Python utility. The maker's focused suite passed 9 tests; the independent
+  checker also reports 97,656 read-only exhaustive input cases passed.
+- Windows sandboxing prevented the maker from writing the linked worktree's
+  shared `.git` metadata, so the host controller committed only the task's
+  authorized owned paths. The maker-side `codexdevteam-test` cache also could
+  not write under the shared `.git/codexdevteam` directory. The host gate ran
+  the configured tests and registered their exact-SHA evidence before the
+  maker submitted CONTROL. This is supervised end-to-end evidence with a
+  host-side commit/gate step, not evidence that the sandboxed maker can write
+  shared Git metadata or test cache files.
+- The project contained the normal Codex hook configuration and no trust-bypass
+  flag was used, but the hook had not been trusted at this project path and
+  therefore very likely did not run. This run did not capture an active-hook
+  trace or repeat the `/hooks` allow/deny proof here. Territory enforcement
+  therefore relied on the host commit and gate; the host commit staged only
+  owned paths, silently filtering any out-of-scope changes instead of refusing
+  the commit. This pilot does not establish hook activation or host-side
+  refusal of out-of-territory edits. Use the separately recorded trusted
+  disposable-hook review only as evidence for that other project path.
+- The pilot summary and per-run metrics remain in the disposable Temp
+  artifacts. Usage was recorded, but model spend is unpriced because no rate
+  configuration was supplied. This utility pilot does not verify DEVDEPARTMENT
+  handover, reverse transfer, process fencing, or representative field-log
+  accuracy, and does not authorize activation on an existing project.
+
+## Normal-trust hook activation experiment at the pilot path — 2026-10-03
+
+- Experiment path: `C:\Users\Nuburo\AppData\Local\Temp\codexdevteam-pilot-rerun-20261003`.
+  The pre-existing `PLAN.md` modification was preserved. Before the probes, the
+  project root had no `src/` directory or hook-probe files.
+- The project hook was reviewed through interactive `/hooks`. Codex showed one
+  new `PreToolUse` hook, matcher `^(apply_patch|Edit|Write)$`, command
+  `python <Temp>\trace_hook.py`, synchronous mode, and a 10 second timeout. The
+  review screen warned that trusted hooks can run outside the sandbox. Only
+  this one hook was trusted. No trust-bypass flag was used.
+- The reviewed hook-definition SHA-256 was
+  `522E5C0EAB1056575EF1FCE1A9E4A043D0D21AF72EBE67B4BEC471E64BD03167`.
+  The tracer's final SHA-256 was
+  `83CCE46DD9AEDF2C466D42F87B51D4F027E61EA3BDDC9FD40BE4E3EC7B791A19`.
+  The tracer append target was
+  `C:\Projects\CODEXDEVTEAM\.codexdevteam-hook-experiment.trace.jsonl`, outside
+  the pilot CLI's writable roots (the pilot directory and `%TEMP%`). The trusted
+  hook created and appended this file, demonstrating that the trusted hook
+  process could write outside the maker sandbox.
+- A trusted edit under the active task's actual `src/**` grant was allowed. Its
+  `PreToolUse` event reached the tracer; the real hook exited 0 with empty
+  stdout, and `src/__codexdevteam_hook_allow_probe__.py` was created. A root
+  edit outside that grant produced this response and no file:
+  `permissionDecision: deny` — `Write policy denied edit: outside owned paths`.
+  This is direct same-path allow/deny evidence for normal hook trust.
+- The hook received the enclosing supervised session's environment, not the
+  synthetic values set by the experiment shell: worker `pilot-builder`, task
+  `TASK-HOOK`, and an active-task snapshot granting `src/**`. This initially
+  denied the experiment's root-level “owned” probe; the allow probe was moved
+  under `src/**`. Future headless experiments must launch with an explicitly
+  controlled runtime context rather than assume ad-hoc environment overrides
+  survive the host runtime.
+- A first tracer version failed before recording because it required tracer
+  environment variables that the host did not pass through. That run created
+  two root-level probes and is not hook evidence. The self-contained tracer
+  produced the allow/deny records above. The tracer source was then changed
+  without changing its configured command path; Codex did not request another
+  review. Changing only the project hook's `statusMessage` changed the config
+  SHA-256 to
+  `9ADF16F9D37CF05DF6E6E3F0DDAC1B463A5067C0BC582C54CC842F1CDFD47C91` and
+  caused `/hooks` to show `Active 0 / Review 1`. A new Codex session then showed
+  the trust prompt again. This suggests trust is tied to the project hook
+  definition/command, but not to the contents of a script referenced by that
+  command. An already-running session continued using its cached trusted hook
+  after the on-disk definition changed; trust must therefore be verified for
+  each new run, and external hook sources should be hash-pinned.
+- In that new session, “Continue without trusting (hooks won't run)” was
+  selected. Two separate edits then created both an owned `src/**` file and an
+  out-of-scope repository-root file. No additional hook trace was recorded.
+  This demonstrates that the new, untrusted definition was inactive and that
+  out-of-scope structured edits could proceed in that session without a hook.
+- Headless `codex exec --json` attempts did not complete: captured JSONL reached
+  `item.started` for a `file_change` and then stalled pending the host's file
+  action/approval path. No hook event appeared before the stall. We did not
+  bypass either hook trust or the sandbox to force completion.
+- Evidence status: **headless trusted-hook activation is inconclusive** because
+  the invocation did not finish.
+- Evidence status: **JSONL hook-event reporting is inconclusive** because the
+  invocation did not finish; hook traces remain the authoritative event record.
+- Before cleanup, the probes present were the two files created by the failed
+  tracer run, `src/__codexdevteam_hook_allow_probe__.py`, the owned file created
+  under the untrusted definition, and `hook_untrusted_out_of_scope.txt`. The
+  denied root-level file remained absent. These exact probes were removed, the
+  original `.codex/config.toml` restored, and the `src/` directory removed only
+  after it became empty. The pre-existing `PLAN.md` edit was preserved. The
+  Phase 6 normal-trust milestone remains unchecked: this experiment validates
+  hook operation at a disposable path, not an installed per-run receipt or a
+  production pilot.

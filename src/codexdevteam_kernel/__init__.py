@@ -13,6 +13,8 @@ from .firewall import TerritoryPolicy, WriteAuthorization
 from .state import HeadLease, LeaseError, PlanProjectionPending, StateStore
 from .protocol import PROTOCOL_VERSION, TaskRecord, grant_within_owned, validate_task_set
 from .worktrees import GitWorktreeManager, WorktreeError, WorktreeInfo
+from .host_commit import (CommitLimits, HostCommitResult, QuiescenceProof,
+                          RefusalReason, host_commit)
 from .secrets import find_secrets
 from .plan_markdown import (ParsedPlan, PlanWriteConflict, parse_plan_markdown,
                             patch_plan_task_state)
@@ -80,6 +82,11 @@ __all__ = [
     "GitWorktreeManager",
     "WorktreeError",
     "WorktreeInfo",
+    "CommitLimits",
+    "HostCommitResult",
+    "QuiescenceProof",
+    "RefusalReason",
+    "host_commit",
     "find_secrets",
     "ParsedPlan",
     "PlanWriteConflict",

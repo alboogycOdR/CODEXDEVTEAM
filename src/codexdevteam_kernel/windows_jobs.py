@@ -115,6 +115,14 @@ class WindowsJob:
             raise ctypes.WinError(ctypes.get_last_error())
         return int(info.ActiveProcesses)
 
+    def prove_quiescence(self):
+        """Return an attested proof only while this live handle observes an empty job."""
+        from .host_commit import QuiescenceProof
+
+        active = self.active_process_count()
+        return QuiescenceProof("windows", "windows_job_object", active == 0, active,
+                               "queried from the invocation's live Windows Job Object")
+
     def terminate_and_verify(self, *, timeout_seconds: float = 5.0) -> bool:
         if not 0.1 <= timeout_seconds <= 30:
             raise ValueError("Job Object termination timeout is outside its bounded range")
