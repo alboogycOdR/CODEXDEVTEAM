@@ -1047,7 +1047,9 @@ class SupervisorTests(unittest.TestCase):
             subprocess.run(["git", "-C", str(project), *args], check=True,
                            capture_output=True)
         (project / "README.md").write_text("fixture\n", encoding="utf-8")
+        (project / ".gitignore").write_text(".codexdevteam/control/\n", encoding="utf-8")
         subprocess.run(["git", "-C", str(project), "add", "README.md"], check=True)
+        subprocess.run(["git", "-C", str(project), "add", ".gitignore"], check=True)
         subprocess.run(["git", "-C", str(project), "commit", "-m", "base"], check=True,
                        capture_output=True)
         base = subprocess.run(["git", "-C", str(project), "rev-parse", "HEAD"], check=True,
@@ -1749,7 +1751,8 @@ class SupervisorTests(unittest.TestCase):
             self.lease, task.task_id, invocation_id="maker:host-commit",
             prompt="implement", base_ref=base, worktrees=manager,
             adapters={"codex": QuiescentMaker()}, now=104)
-        self.assertEqual(cycle.host_commit.status, "committed")
+        self.assertEqual(cycle.host_commit.status, "committed",
+                         (cycle.host_commit.reasons, cycle.host_commit.paths))
         self.assertEqual(cycle.host_commit.paths, ("src/host-committed.py",))
         commit_event = next(event["payload"] for event in self.store.events()
                             if event["payload"].get("type") == "host_commit.completed")
@@ -1770,7 +1773,8 @@ class SupervisorTests(unittest.TestCase):
                       for name in ("build", "typecheck", "test_full")},
             active_tasks=tuple(self.store.list_tasks()),
         )
-        self.assertEqual(gate.status, "passed")
+        self.assertEqual(gate.status, "passed",
+                         {name: check.summary for name, check in gate.checks.items()})
         self.assertEqual(gate.sha, cycle.host_commit.sha)
 
     def test_supervisor_keeps_control_pending_when_host_commit_refuses(self):
@@ -1822,6 +1826,11 @@ class SupervisorTests(unittest.TestCase):
                 output = Path(request.working_directory) / "src" / "change.py"
                 output.parent.mkdir(parents=True, exist_ok=True)
                 output.write_text("answer = 42\n", encoding="utf-8")
+                submit_control(
+                    Path(request.control_outbox_path), task_id=task.task_id,
+                    worker_id="builder", event_id="a-maker-progress",
+                    progress_note="Implementation is ready for gate review.",
+                )
                 return replace(result, quiescence_proof=QuiescenceProof(
                     "windows", "windows_job_object", True, 0, "fixture"))
 
@@ -1829,7 +1838,8 @@ class SupervisorTests(unittest.TestCase):
             self.lease, task.task_id, invocation_id="maker:103", prompt="implement",
             base_ref=base, worktrees=manager, adapters={"codex": CommittingMaker()},
             defer_control_drain=True, now=104)
-        self.assertEqual(cycle.host_commit.status, "committed")
+        self.assertEqual(cycle.host_commit.status, "committed",
+                         (cycle.host_commit.reasons, cycle.host_commit.paths))
         outbox = Path(cycle.worktree_path) / ".codexdevteam" / "control" / "outbox"
         sha = cycle.host_commit.sha
         gate = GateRunner(project, Path(self.temp.name) / "gate-artifacts-103").run(
@@ -1839,7 +1849,8 @@ class SupervisorTests(unittest.TestCase):
                       for name in ("build", "typecheck", "test_full")},
             active_tasks=tuple(self.store.list_tasks()),
         )
-        self.assertEqual(gate.status, "passed")
+        self.assertEqual(gate.status, "passed",
+                         {name: check.summary for name, check in gate.checks.items()})
         submit_control(
             outbox, task_id=task.task_id, worker_id="builder", event_id="maker-needs-review",
             requested_state="needs_review", test_evidence=(gate.test_run_result.evidence_ref,),
@@ -1847,7 +1858,9 @@ class SupervisorTests(unittest.TestCase):
         )
         finalized = self.supervisor.finalize_maker_gate(
             self.lease, cycle, gate, attempt_event_id="gate-maker-103", now=105)
-        self.assertEqual(finalized.control_applied, ("maker-needs-review",))
+        self.assertEqual(finalized.control_applied,
+                         ("a-maker-progress", "maker-needs-review"))
+        self.assertEqual(finalized.control_rejected, ())
         self.assertEqual(self.store.get_task(task.task_id).state, TaskState.NEEDS_REVIEW)
 
     def test_park_wins_atomically_before_maker_runtime_launch(self):

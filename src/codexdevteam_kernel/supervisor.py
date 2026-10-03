@@ -19,7 +19,8 @@ from .dispatch import (CapacityObservation, DispatchError, TaskClassPolicy,
 from .control_queue import drain_control_outbox
 from .gate import GateResult
 from .health import StagnationSample, stale_signal
-from .host_commit import HostCommitResult, QuiescenceProof, RefusalReason, host_commit
+from .host_commit import (CommitLimits, HostCommitResult, QuiescenceProof,
+                          RefusalReason, host_commit)
 from .memory import EvidenceMemory, FactInjection, render_fact_injection
 from .process_identity import ProcessIdentity, observe_process_identity
 from .registry import WorkerRegistry
@@ -1042,6 +1043,8 @@ class Supervisor:
                     expected_parent=worktree_info.head,
                     invocation_id=invocation_id,
                     quiescence=proof,
+                    limits=CommitLimits(
+                        ignored_allowlist=(".codexdevteam/control",)),
                 )
             else:
                 commit_result = HostCommitResult(

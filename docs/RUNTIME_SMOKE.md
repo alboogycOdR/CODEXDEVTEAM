@@ -505,6 +505,14 @@ for strict mode until those capabilities are verified without the bypass.
   ([run 37131102400](https://github.com/alboogycOdR/CODEXDEVTEAM/actions/runs/37131102400)).
   This hosted matrix validates the fixture suite; it is not Linux runtime
   quiescence evidence.
+- The supervisor allow-lists only the reserved ignored `.codexdevteam/control`
+  tree from maker snapshots, so CONTROL reports remain outside task commits.
+  The Windows integration fixture verifies a maker report survives host commit,
+  then is drained only after the gate passes on the exact committed SHA. A
+  follow-up matrix first caught that this live-process integration fixture was
+  running on Linux with a simulated Windows proof; it is now Windows-only, and
+  [run 37147652350](https://github.com/alboogycOdR/CODEXDEVTEAM/actions/runs/37147652350)
+  passed all four OS/Python jobs.
 - Still outstanding: a fresh disposable live Codex maker run through the
   supervisor's new commit and exact-SHA gate path, with normal hook trust
   established and hook events captured directly. No commit/push or deployment
