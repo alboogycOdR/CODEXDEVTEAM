@@ -487,3 +487,25 @@ for strict mode until those capabilities are verified without the bypass.
   Phase 6 normal-trust milestone remains unchecked: this experiment validates
   hook operation at a disposable path, not an installed per-run receipt or a
   production pilot.
+
+## Windows host commit boundary — 2026-10-03
+
+- Added a standalone host committer that snapshots and validates the complete
+  linked worktree, refuses mixed owned/unowned changes, creates the commit from
+  the validated bytes, and publishes it with an expected-parent ref update.
+- The Codex maker runtime now returns a Windows quiescence proof only after its
+  live Job Object reports zero active processes. The supervisor uses that proof
+  to commit successful maker output. Commit outcomes are journaled; a refused
+  commit leaves CONTROL reports pending. Gate finalization requires the exact
+  SHA returned by a successful host commit.
+- Windows PowerShell verification: full suite **270 passed, 8 skipped**;
+  focused host-commit, supervisor, and gate scenarios also passed.
+- Hosted CI for implementation commit `e349da6ddcc4c92d8dc4fb1aa316a17f3c81c7be`
+  passed all four Ubuntu/Windows × Python 3.11/3.12 jobs
+  ([run 37131102400](https://github.com/alboogycOdR/CODEXDEVTEAM/actions/runs/37131102400)).
+  This hosted matrix validates the fixture suite; it is not Linux runtime
+  quiescence evidence.
+- Still outstanding: a fresh disposable live Codex maker run through the
+  supervisor's new commit and exact-SHA gate path, with normal hook trust
+  established and hook events captured directly. No commit/push or deployment
+  of a pilot artifact is implied by this test evidence.

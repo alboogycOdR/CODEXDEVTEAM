@@ -338,6 +338,7 @@ Derived from TIERED_ROUTING_AND_MEMORY_2026-09:
 - [ ] Run a fresh real project end-to-end with normally trusted hooks and strict-capability evidence.
 - Disposable Git-project integration coverage now spans inactive install, hook decisions, CONTROL, test evidence, gate, and review, but uses fixture runtime/checker receipts and does not satisfy the live pilot.
 - A live Codex disposable TextTidy utility pilot reached `done` at `dbdad75f927f6ee93a539ae059c003537beecc13` with a passing exact-SHA gate and independent checker approval. The Windows host had to commit the maker's owned-path changes and run the gate because the Codex sandbox could not write shared `.git` metadata. This is useful live pilot evidence, but the new path's hook activation was not traced directly, so the checklist remains open. Details are in `docs/RUNTIME_SMOKE.md`.
+- The Windows host-commit boundary is now wired into supervisor cycles, and gate finalization requires the exact committed SHA; CONTROL remains pending on commit refusal. The full Windows suite passes, and hosted CI for the preceding implementation commit passed all four OS/Python matrix jobs. A fresh live Codex run through this integrated path remains outstanding.
 - [ ] Hand an existing DEVDEPARTMENT project to CODEXDEVTEAM and back.
 - [x] Verify no duplicate claims/reviews under lease contention across two store connections.
 - [ ] Measure first-pass rate, review sessions, gate rejection rate and model spend.

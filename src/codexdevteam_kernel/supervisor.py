@@ -677,6 +677,10 @@ class Supervisor:
             raise ValueError("maker cycle and gate result are required")
         if cycle.task_id != gate.task_id:
             raise ValueError("gate task does not match the maker cycle")
+        if (cycle.host_commit is None or cycle.host_commit.status != "committed"
+                or cycle.host_commit.sha is None
+                or cycle.host_commit.sha.lower() != gate.sha.lower()):
+            raise ValueError("gate requires the exact SHA published by a successful host commit")
         if cycle.control_applied or cycle.control_rejected:
             raise ValueError("maker CONTROL was already drained; defer draining until after the gate")
         worktree = Path(cycle.worktree_path).resolve(strict=True)
@@ -1047,6 +1051,19 @@ class Supervisor:
                         "successful maker has no verified Windows Job Object proof; no commit published",
                     ),),
                 )
+            self.store.record_event(
+                lease, f"host-commit:{invocation_id}",
+                {
+                    "type": "host_commit.refused" if commit_result.status == "refused"
+                    else "host_commit.completed",
+                    "task_id": task_id,
+                    "invocation_id": invocation_id,
+                    "status": commit_result.status,
+                    "sha": commit_result.sha,
+                    "paths": list(commit_result.paths),
+                    "reason_codes": [reason.code for reason in commit_result.reasons],
+                }, now=now,
+            )
         self.store.record_invocation(lease, result, now=now)
         control = ({"applied": (), "rejected": ()}
                    if defer_control_drain or (

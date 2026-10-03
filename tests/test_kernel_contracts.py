@@ -1751,6 +1751,10 @@ class SupervisorTests(unittest.TestCase):
             adapters={"codex": QuiescentMaker()}, now=104)
         self.assertEqual(cycle.host_commit.status, "committed")
         self.assertEqual(cycle.host_commit.paths, ("src/host-committed.py",))
+        commit_event = next(event["payload"] for event in self.store.events()
+                            if event["payload"].get("type") == "host_commit.completed")
+        self.assertEqual(commit_event["sha"], cycle.host_commit.sha)
+        self.assertEqual(commit_event["invocation_id"], "maker:host-commit")
         self.assertEqual(cycle.host_commit.sha,
                          subprocess.run(["git", "-C", str(project), "rev-parse",
                                          f"refs/heads/codexdevteam/{task.task_id}"],
@@ -1771,6 +1775,7 @@ class SupervisorTests(unittest.TestCase):
 
     def test_supervisor_keeps_control_pending_when_host_commit_refuses(self):
         from codexdevteam_kernel.control_queue import submit_control
+        from codexdevteam_kernel.gate import GateResult
 
         project, base, task = self.prepare_claimed_maker("TASK-100-COMMIT-REFUSED")
         manager = GitWorktreeManager(project, Path(self.temp.name) / "managed-commit-refused")
@@ -1798,18 +1803,34 @@ class SupervisorTests(unittest.TestCase):
         self.assertEqual(self.store.get_task(task.task_id).state, TaskState.IN_PROGRESS)
         outbox = Path(cycle.worktree_path) / ".codexdevteam" / "control" / "outbox"
         self.assertTrue((outbox / "uncommitted-report.json").is_file())
+        fabricated = GateResult(task.task_id, base, "passed", {}, "f" * 64, "fixture")
+        with self.assertRaisesRegex(ValueError, "exact SHA published by a successful host commit"):
+            self.supervisor.finalize_maker_gate(
+                self.lease, cycle, fabricated, attempt_event_id="forbidden-gate", now=105)
 
     def test_deferred_maker_control_drains_only_after_head_gate_registration(self):
+        from dataclasses import replace
         from codexdevteam_kernel.control_queue import submit_control
+        from codexdevteam_kernel.host_commit import QuiescenceProof
         project, base, task = self.prepare_claimed_maker("TASK-103")
         manager = GitWorktreeManager(project, Path(self.temp.name) / "managed-103")
+
+        class CommittingMaker:
+            def invoke(inner_self, request):
+                result = self.FakeInvocationAdapter().invoke(request)
+                output = Path(request.working_directory) / "src" / "change.py"
+                output.parent.mkdir(parents=True, exist_ok=True)
+                output.write_text("answer = 42\n", encoding="utf-8")
+                return replace(result, quiescence_proof=QuiescenceProof(
+                    "windows", "windows_job_object", True, 0, "fixture"))
+
         cycle = self.supervisor.invoke_claimed_task(
             self.lease, task.task_id, invocation_id="maker:103", prompt="implement",
-            base_ref=base, worktrees=manager, adapters={"codex": self.FakeInvocationAdapter()},
+            base_ref=base, worktrees=manager, adapters={"codex": CommittingMaker()},
             defer_control_drain=True, now=104)
+        self.assertEqual(cycle.host_commit.status, "committed")
         outbox = Path(cycle.worktree_path) / ".codexdevteam" / "control" / "outbox"
-        sha = subprocess.run(["git", "-C", cycle.worktree_path, "rev-parse", "HEAD"],
-                             capture_output=True, text=True, check=True).stdout.strip()
+        sha = cycle.host_commit.sha
         gate = GateRunner(project, Path(self.temp.name) / "gate-artifacts-103").run(
             self.store.get_task(task.task_id), cycle.worktree_path,
             expected_sha=sha, base_ref=base,
