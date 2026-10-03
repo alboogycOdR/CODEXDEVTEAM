@@ -1808,6 +1808,7 @@ class SupervisorTests(unittest.TestCase):
             self.supervisor.finalize_maker_gate(
                 self.lease, cycle, fabricated, attempt_event_id="forbidden-gate", now=105)
 
+    @unittest.skipUnless(os.name == "nt", "Windows Job Object host-commit integration")
     def test_deferred_maker_control_drains_only_after_head_gate_registration(self):
         from dataclasses import replace
         from codexdevteam_kernel.control_queue import submit_control
