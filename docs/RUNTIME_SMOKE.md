@@ -517,3 +517,34 @@ for strict mode until those capabilities are verified without the bypass.
   supervisor's new commit and exact-SHA gate path, with normal hook trust
   established and hook events captured directly. No commit/push or deployment
   of a pilot artifact is implied by this test evidence.
+
+## Exact-SHA maker-to-review closeout — 2026-10-04
+
+- The disposable `TASK-TEXTTIDY-003` maker run committed only its owned test
+  path at `a664233e4b5470ebe53a47b0a05ed32849e944b7`. HEAD reused the registered
+  passing gate/test receipt, advanced the task to `needs_review`, and invoked
+  the configured independent checker. The checker approved that exact SHA and
+  HEAD recorded the task as `done`. The supervisor was parked and its lease
+  released after the bounded cycle. The pilot's `PLAN.md` was not projected or
+  changed in this closeout.
+- The pilot's host-gate handoff initially exposed that a maker cannot report
+  the host-created commit SHA or receipt. `finalize_maker_gate()` now lets HEAD
+  attach registered passed test evidence and transition an in-progress task to
+  review without a maker-authored SHA report. This does not treat model output
+  as proof; the gate receipt and checker verdict remain SHA-bound.
+- Windows lifecycle coverage in
+  `tests/test_kernel_contracts.py::SupervisorTests.test_host_gate_moves_task_to_review_without_maker_sha_report`
+  now exercises host commit, exact-SHA gate, automatic review transition,
+  independent checker invocation, and final review application with fixture
+  adapters. It is deterministic integration coverage, not hook activation
+  evidence or a substitute for a fresh live pilot.
+- Local Windows PowerShell suite: **272 passed, 8 skipped**. Hosted CI for
+  `ff3913cfa5a29fd88c628fc6852a1e8859338a0e` passed all Ubuntu/Windows × Python
+  3.11/3.12 jobs ([run 37158591080](https://github.com/alboogycOdR/CODEXDEVTEAM/actions/runs/37158591080)).
+  The prior run had two Windows Python 3.11 lease-test timing flakes with
+  sub-150 ms expirations; the fixtures now use wider renewal windows.
+- Still outstanding: hook events must be captured directly in one fresh,
+  normally trusted Codex run, bound to a host-generated run nonce. The
+  interactive trusted-hook allow/deny smoke and the separate headless attempt
+  remain distinct evidence; the latter is still inconclusive. Follow the
+  one-attempt plain-PowerShell protocol in `docs/WINDOWS_SANDBOX_BOUNDARY.md`.
