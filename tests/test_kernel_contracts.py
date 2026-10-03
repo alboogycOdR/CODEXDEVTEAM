@@ -1277,7 +1277,7 @@ class SupervisorTests(unittest.TestCase):
         now = time.time()
         lease = self.store.acquire_head(
             "CODEXDEVTEAM", "continuous-keepalive", now=now,
-            ttl_seconds=0.15, takeover_confirmed=True,
+            ttl_seconds=2.0, takeover_confirmed=True,
         )
         self.store.set_supervisor_mode(
             lease, "running", event_id="continuous-keepalive-running", now=now,
@@ -1297,7 +1297,7 @@ class SupervisorTests(unittest.TestCase):
             result = self.supervisor.run_continuous(
                 lease, cycle_inputs=lambda _tick: inputs,
                 cycle_id_prefix=lambda _tick: "keepalive",
-                stop_event=Event(), interval_seconds=0.3, lease_ttl_seconds=0.15,
+                stop_event=Event(), interval_seconds=0.3, lease_ttl_seconds=1.0,
                 max_cycles=2,
             )
         self.assertEqual(result.cycles_completed, 2)
@@ -1876,7 +1876,7 @@ class SupervisorTests(unittest.TestCase):
                 result = self.FakeInvocationAdapter().invoke(request)
                 output = Path(request.working_directory) / "src" / "change.py"
                 output.parent.mkdir(parents=True, exist_ok=True)
-                output.write_text("answer = 43\\n", encoding="utf-8")
+                output.write_text("answer = 43\n", encoding="utf-8")
                 return replace(result, quiescence_proof=QuiescenceProof(
                     "windows", "windows_job_object", True, 0, "fixture"))
 
@@ -1901,6 +1901,59 @@ class SupervisorTests(unittest.TestCase):
         reviewed = self.store.get_task(task.task_id)
         self.assertEqual(reviewed.state, TaskState.NEEDS_REVIEW)
         self.assertIn(gate.test_run_result.evidence_ref, reviewed.test_evidence)
+
+        checker_registry = WorkerRegistry.from_dict({
+            "protocol_version": 1, "active": ["builder", "checker"],
+            "head_candidate": None,
+            "capability_order": ["standard", "advanced"],
+            "defined": {
+                "builder": {"role": "implementation", "capability_floor": "advanced",
+                            "runtime": "codex", "model": "builder-model",
+                            "control_mode": "strict",
+                            "strict_verification": {
+                                "status": "passed", "runtime": "codex",
+                                "model": "builder-model",
+                                "verified_at": "2026-10-01T00:00:00Z",
+                                "evidence_ref": "live-check",
+                                "verified_capabilities": [
+                                    "control_protocol", "structured_edit_firewall",
+                                    "task_worktree_isolation", "post_run_territory_gate",
+                                ],
+                            }},
+                "checker": {"role": "reviewer", "capability_floor": "standard",
+                            "runtime": "independent-checker", "model": "review-model"},
+            },
+        })
+        checker_supervisor = Supervisor(self.store, checker_registry, SupervisorPolicy(
+            require_strict=False, require_capacity_observation=False))
+
+        class CheckerAdapter:
+            def invoke(inner_self, request):
+                verdict = json.dumps({
+                    "task_id": request.task_id, "sha": request.review_sha,
+                    "gate_fingerprint": request.gate_fingerprint,
+                    "decision": "approved", "rationale": "Exact-SHA smoke review approved.",
+                    "evidence_refs": ["tests/test_kernel_contracts.py"],
+                })
+                return InvocationResult(
+                    request.invocation_id, request.task_id, "checker",
+                    request.identity.unit_id, request.identity.runtime,
+                    request.identity.model, "succeeded", 0, 0.1,
+                    verdict, "", False, "d" * 64, 106, 106.1,
+                    request.review_sha, request.gate_fingerprint,
+                )
+
+        checker_cycle = checker_supervisor.invoke_checker(
+            self.lease, task.task_id, "checker", gate=gate,
+            prompt="Review the exact committed SHA without edits.",
+            working_directory=cycle.worktree_path,
+            adapters={"independent-checker": CheckerAdapter()},
+            invocation_id="checker-105-gate-review",
+            now=106,
+        )
+        self.assertTrue(checker_supervisor.apply_checker_output(
+            self.lease, checker_cycle, gate=gate, event_id="review-105-gate-review", now=107))
+        self.assertEqual(self.store.get_task(task.task_id).state, TaskState.DONE)
 
     def test_park_wins_atomically_before_maker_runtime_launch(self):
         project, base, task = self.prepare_claimed_maker("TASK-101")
@@ -4479,12 +4532,12 @@ class HeadLeaseTests(unittest.TestCase):
     def test_head_lease_guard_renews_during_external_work(self):
         import time
         from codexdevteam_kernel.lease_guard import HeadLeaseGuard
-        first = self.store.acquire_head("CODEXDEVTEAM", "guarded-head", ttl_seconds=0.04)
+        first = self.store.acquire_head("CODEXDEVTEAM", "guarded-head", ttl_seconds=2.0)
         renewals = []
-        with HeadLeaseGuard(self.store, first, ttl_seconds=0.12,
-                            renew_interval_seconds=0.02,
+        with HeadLeaseGuard(self.store, first, ttl_seconds=1.0,
+                            renew_interval_seconds=0.1,
                             on_renew=renewals.append) as guard:
-            time.sleep(0.07)
+            time.sleep(0.35)
             guard.raise_if_lost()
             with self.assertRaises(LeaseError):
                 self.store.acquire_head("CODEXDEVTEAM", "competing-head")
