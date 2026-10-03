@@ -170,12 +170,16 @@ def host_commit(repository: str | Path, worktree: str | Path, task: TaskRecord, 
         base = _read_parent_tree(git_dir, repo, parent)
         gitlinks = {path for path, (mode, _) in base.items() if mode == 0o160000}
         allowlist = tuple(limits.ignored_allowlist)
-        first = _capture_snapshot(tree, base, task, git_dir, repo, parent, limits, allowlist,
-                                  core_options)
+        # Status must resolve HEAD from the linked worktree's private git dir.
+        # The common git dir's HEAD belongs to the primary checkout, which can
+        # differ from this task's parent and make unchanged task files appear
+        # as staged additions/deletions in the temporary index.
+        first = _capture_snapshot(tree, base, task, worktree_admin, repo, parent, limits,
+                                  allowlist, core_options)
         if limits.settle_seconds:
             time.sleep(limits.settle_seconds)
-        second = _capture_snapshot(tree, base, task, git_dir, repo, parent, limits, allowlist,
-                                   core_options)
+        second = _capture_snapshot(tree, base, task, worktree_admin, repo, parent, limits,
+                                   allowlist, core_options)
         if _snapshot_signature(first) != _snapshot_signature(second):
             raise _Refused("QUIESCENCE_UNPROVEN", "worktree changed during the settle interval")
         snapshot = second
@@ -264,7 +268,7 @@ def host_commit(repository: str | Path, worktree: str | Path, task: TaskRecord, 
             try:
                 # Final tripwire: compare the complete worktree snapshot to
                 # the validated bytes immediately before ref publication.
-                final = _capture_snapshot(tree, base, task, git_dir, repo, parent, limits,
+                final = _capture_snapshot(tree, base, task, worktree_admin, repo, parent, limits,
                                           allowlist, core_options)
                 if _snapshot_signature(final) != _snapshot_signature(snapshot):
                     raise _Refused("LATE_WRITE_DETECTED", "worktree changed after validation",

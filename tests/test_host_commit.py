@@ -92,6 +92,24 @@ class HostCommitTests(unittest.TestCase):
         self.assertFalse((self.worktree / "src" / "delete.txt").exists())
         self.assertEqual((self.worktree / "src" / "added.txt").read_text(), "new\n")
 
+    def test_primary_checkout_head_does_not_mark_task_parent_files_as_changes(self):
+        # A linked worktree's HEAD may differ from the primary checkout. The
+        # host snapshot's temporary index is based on the task parent, so its
+        # status command must use the worktree-specific Git directory.
+        self.git("-C", str(self.repo), "rm", "-r", "--", "src")
+        self.git("-C", str(self.repo), "commit", "-m", "primary checkout advances without task source")
+        self.assertNotEqual(self.git("-C", str(self.repo), "rev-parse", "HEAD").strip(),
+                            self.parent)
+        (self.worktree / "src" / "modify.txt").write_text("task-owned change\n")
+
+        result = self.commit()
+
+        self.assertEqual(result.status, "committed", result.reasons)
+        self.assertEqual(result.paths, ("src/modify.txt",))
+        self.assertEqual(self.head(), result.sha)
+        self.assertEqual(self.git("-C", str(self.repo), "rev-parse", "HEAD").strip(),
+                         self.git("-C", str(self.repo), "rev-parse", "main").strip())
+
     def test_mixed_owned_and_unowned_refuses_without_partial_commit(self):
         (self.worktree / "src" / "added.txt").write_text("owned\n")
         (self.worktree / "docs" / "unowned.txt").write_text("outside\n")
