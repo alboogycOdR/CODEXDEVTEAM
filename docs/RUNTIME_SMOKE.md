@@ -543,17 +543,32 @@ for strict mode until those capabilities are verified without the bypass.
   3.11/3.12 jobs ([run 37158591080](https://github.com/alboogycOdR/CODEXDEVTEAM/actions/runs/37158591080)).
   The prior run had two Windows Python 3.11 lease-test timing flakes with
   sub-150 ms expirations; the fixtures now use wider renewal windows.
-- Still outstanding: hook events must be captured directly in a fresh,
-  normally trusted Codex run, bound to a host-generated run nonce. The
-  interactive trusted-hook allow/deny smoke and the separate headless attempt
-  remain distinct evidence. The 2026-10-04 plain-PowerShell attempt completed
-  quiescently (exit 0; zero active processes), but its nonce-bound trace was
-  empty and both the owned and out-of-scope probes were created. Its JSONL
-  contained the word "hook" only in ordinary prompt/assistant text; that
-  substring check is not hook-event evidence. The active user trust store had
-  entries for earlier disposable project paths but none for this new fixture
-  path, making missing project-hook trust a likely explanation, not a proven
-  cause. Record this attempt as **inconclusive / hook not observed**, not a
-  pass. Do not infer territory enforcement from this run. No second headless
-  attempt was made. The host commit and exact-SHA gate evidence above is
-  independent of this hook result.
+- The 2026-10-04 plain-PowerShell headless attempt completed quiescently (exit
+  0; zero active processes), but its nonce-bound trace was empty and both the
+  owned and out-of-scope probes were created. The JSONL substring "hook" came
+  from ordinary text, not an event record. The new fixture path had no hook
+  trust entry; missing trust is plausible but unproven. This is
+  **inconclusive / hook not observed**, not a pass. No second attempt was made.
+  Hook activation is optional and is not the territory security boundary; see
+  `docs/CODEX_HOOKS.md`.
+
+## Host commit refusal handling — 2026-10-04
+
+- Each maker invocation now has its own CONTROL outbox, and HEAD rejects a
+  report whose embedded invocation ID differs from the maker cycle. On a
+  quiescent host-commit refusal, HEAD archives that invocation's reports under
+  host-owned Git metadata. An out-of-scope refusal also quarantines the refused
+  files there and restores those paths to the recorded parent state.
+- After successful quarantine, HEAD allows exactly one retry with a prompt that
+  names the refused paths; owned edits remain available. A second refusal, or a
+  refusal that cannot be safely quarantined, blocks the task and records the
+  reason. The worktree is not automatically deleted.
+- Windows regression coverage exercises stale-report isolation, quarantine and
+  restore, preservation of owned edits, one successful retry, blocking after a
+  second refusal, and a separate task worktree remaining uncontaminated. See
+  `tests/test_kernel_contracts.py::SupervisorTests`.
+- Full local Windows contract suite: **275 passed, 8 skipped**. Hosted branch-head
+  CI has not yet run against these refusal-handling and strict-capability changes.
+- Supported supervised maker commits are Windows-only. Ubuntu/Windows hosted
+  CI covers the portable contract suite; Linux maker commits fail closed because
+  the supervisor currently requires a verified Windows Job Object proof.

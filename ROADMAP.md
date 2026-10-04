@@ -30,7 +30,7 @@
 - [x] Consume supplied stagnation samples in dispatch cycles and route exhausted breakers into the escalation outbox.
 - [x] Persist bounded runtime cancellation method/result/exit evidence; keep maker liveness held when termination cannot be verified.
 - [x] Persist signed, one-use process-tree cancellation evidence across HEAD lease loss; verify it under the successor lease before clearing maker liveness.
-- [x] Verify the runtime firewall capability set locally with normal Codex hook trust, CONTROL drain, isolated task worktree, post-run territory gate, and strict-receipt dispatch; keep manifest-deferred GateGuard prompts out.
+- [x] Verify the runtime territory capability set with isolated task worktree, host commit boundary, CONTROL drain, post-run gate, and strict-receipt dispatch; keep manifest-deferred GateGuard prompts out. The Codex pre-write hook remains optional and its latest headless activation attempt was inconclusive.
 - [x] Configure Windows + Ubuntu CI matrix.
 - [x] Verify the current kernel suite on both platforms locally (Windows and Ubuntu 24.04 container pass; Ubuntu WSL startup timed out while Docker Desktop was running).
 - [x] Obtain a hosted CI run before enabling autonomous supervision (all four
@@ -335,15 +335,15 @@ Derived from TIERED_ROUTING_AND_MEMORY_2026-09:
 
 ## Phase 6 — Pilot
 
-- [ ] Run a fresh real project end-to-end with normally trusted hooks and strict-capability evidence. The 2026-10-04 one-shot PowerShell attempt exited cleanly but produced no hook trace and created both owned and out-of-scope probes; hook activation is therefore unproven. The JSONL substring "hook" was not an event record. Do not count this attempt as a pass; see `docs/RUNTIME_SMOKE.md`.
+- [x] Complete a fresh disposable Windows project through maker, host commit, exact-SHA gate, and independent checker. The TextTidy pilot reached `done`; the host commit boundary provides territory enforcement at commit time. Pre-write hook activation is optional and remains unverified in the latest headless attempt; see `docs/RUNTIME_SMOKE.md`.
 - Disposable Git-project integration coverage now spans inactive install, hook decisions, CONTROL, test evidence, gate, and review, but uses fixture runtime/checker receipts and does not satisfy the live pilot.
 - A live Codex disposable TextTidy utility pilot reached `done` at `a664233e4b5470ebe53a47b0a05ed32849e944b7` with a passing exact-SHA gate and independent checker approval. The Windows host committed the maker's owned-path change and ran the gate because the Codex sandbox could not write shared `.git` metadata. The pilot and deterministic Windows lifecycle regression are evidence for host commit, exact-SHA gate, and independent review; direct hook activation tracing remains open. Details are in `docs/RUNTIME_SMOKE.md`.
-- The Windows host-commit boundary is wired into supervisor cycles, gate finalization requires the exact committed SHA, and CONTROL remains pending on commit refusal. Its reserved ignored CONTROL tree is excluded from task commits and is drained only after the gate. The Windows lifecycle regression covers maker commit through independent checker approval. Hosted CI run [37158591080](https://github.com/alboogycOdR/CODEXDEVTEAM/actions/runs/37158591080) passed all four OS/Python matrix jobs. A fresh normally trusted Codex run with direct hook trace remains outstanding; the latest one-shot attempt was inconclusive and did not enforce territory.
+- The Windows host-commit boundary is wired into supervisor cycles, gate finalization requires the exact committed SHA, and refused CONTROL is invocation-bound and archived. Refused out-of-scope files are quarantined in host-owned Git metadata and restored out of the worktree; one bounded retry is allowed, then the task is blocked with `OWNERSHIP_CONFLICT`. Windows regressions cover refusal, quarantine, retry, stale-report rejection, and cross-task isolation. The full local Windows contract suite passes (**275 passed, 8 skipped**). Hosted CI run [37158591080](https://github.com/alboogycOdR/CODEXDEVTEAM/actions/runs/37158591080) passed the prior lifecycle suite; updated branch-head CI is still required. Supported supervised maker commits are Windows-only; Linux is CI coverage and commits fail closed without a verified Windows Job Object proof.
 - [ ] Hand an existing DEVDEPARTMENT project to CODEXDEVTEAM and back.
 - [x] Verify no duplicate claims/reviews under lease contention across two store connections.
 - [ ] Measure first-pass rate, review sessions, gate rejection rate and model spend.
 - A `measure_pilot()` report now exposes these metrics from verified review/gate receipts; real model spend and operational sample data are still required to complete the measurement.
-- [ ] Tag v0.1 only after both fresh and interoperability pilots pass.
+- [ ] Tag v0.1 after the fresh-project core is verified and merged. DEVDEPARTMENT handover and reverse transfer are deferred interoperability work; the proposed v0.1/v0.2 split is pending the project owner's decision.
 
 ## Deferred until evidence justifies them
 

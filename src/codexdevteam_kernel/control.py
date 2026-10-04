@@ -11,6 +11,7 @@ CONTROL_VERSION = 1
 _MESSAGE_FIELDS = {
     "protocol_version", "event_id", "task_id", "worker_id", "requested_state",
     "progress_note", "blocked_reason", "artifacts", "test_evidence", "head_sha",
+    "invocation_id",
 }
 
 
@@ -26,6 +27,7 @@ class ControlMessage:
     test_evidence: tuple[str, ...] = ()
     protocol_version: int = CONTROL_VERSION
     head_sha: str | None = None
+    invocation_id: str | None = None
 
     def __post_init__(self) -> None:
         if self.protocol_version != CONTROL_VERSION:
@@ -38,6 +40,9 @@ class ControlMessage:
             raise ValueError("requested_state must be a TaskState or null")
         if self.head_sha is not None and not re.fullmatch(r"[0-9a-fA-F]{40,64}", self.head_sha):
             raise ValueError("head_sha must be null or a full Git SHA")
+        if self.invocation_id is not None and not re.fullmatch(
+                r"[A-Za-z0-9][A-Za-z0-9_.:-]{0,127}", self.invocation_id):
+            raise ValueError("invocation_id must be null or a valid invocation ID")
         if self.progress_note is not None and (
             not isinstance(self.progress_note, str) or not self.progress_note.strip()
         ):
@@ -73,6 +78,7 @@ class ControlMessage:
                 event_id=data["event_id"], task_id=data["task_id"], worker_id=data["worker_id"],
                 requested_state=TaskState(requested) if requested is not None else None,
                 head_sha=data.get("head_sha"),
+                invocation_id=data.get("invocation_id"),
                 progress_note=data.get("progress_note"),
                 blocked_reason=data.get("blocked_reason"),
                 artifacts=tuple(data.get("artifacts", ())),

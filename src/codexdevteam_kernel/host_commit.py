@@ -8,6 +8,7 @@ a temporary index and publishes one commit with an expected-old ref update.
 from __future__ import annotations
 
 import hashlib
+import json
 import os
 import re
 import stat
@@ -103,6 +104,175 @@ class HostCommitResult:
             raise ValueError("invalid host commit result status")
         if (self.status == "committed") != (self.sha is not None):
             raise ValueError("only committed results carry a SHA")
+
+
+def validate_owned_retry_worktree(repository: str | Path, worktree: str | Path,
+                                  task: TaskRecord, *, task_branch: str,
+                                  expected_parent: str) -> tuple[str, ...]:
+    """Revalidate an internally authorized retry worktree before launching a maker."""
+    repo = Path(repository).expanduser().resolve()
+    tree = Path(worktree).expanduser().resolve()
+    git_dir = _trusted_git_dir(repo)
+    admin = _verify_worktree_pointer(git_dir, tree, task_branch)
+    _check_branch_name(git_dir, task_branch, task.task_id)
+    _reject_external_filters(git_dir)
+    core_options = _effective_core_options(git_dir)
+    base = _read_parent_tree(git_dir, repo, expected_parent)
+    limits = CommitLimits(ignored_allowlist=(".codexdevteam/control",), settle_seconds=0)
+    snapshot = _capture_snapshot(tree, base, task, git_dir, repo, expected_parent, limits,
+                                 limits.ignored_allowlist, core_options)
+    outside = tuple(path for path in snapshot.changed
+                    if not decide_write(path, task.owned_paths).allowed)
+    if outside:
+        raise _Refused("OUTSIDE_TERRITORY", "retry worktree still contains out-of-scope paths",
+                       *outside)
+    # A second snapshot closes a race between the check and runtime launch.
+    confirmed = _capture_snapshot(tree, base, task, git_dir, repo, expected_parent, limits,
+                                  limits.ignored_allowlist, core_options)
+    if _snapshot_signature(snapshot) != _snapshot_signature(confirmed):
+        raise _Refused("LATE_WRITE_DETECTED", "retry worktree changed during validation",
+                       *confirmed.changed)
+    return confirmed.changed
+
+
+def quarantine_out_of_scope_changes(repository: str | Path, worktree: str | Path,
+                                    task: TaskRecord, *, task_branch: str,
+                                    expected_parent: str, invocation_id: str,
+                                    paths: tuple[str, ...]) -> tuple[Path, tuple[str, ...]]:
+    """Preserve and restore only refused out-of-scope files in host-owned Git metadata."""
+    repo = Path(repository).expanduser().resolve()
+    tree = Path(worktree).expanduser().resolve()
+    git_dir = _trusted_git_dir(repo)
+    admin = _verify_worktree_pointer(git_dir, tree, task_branch)
+    _check_branch_name(git_dir, task_branch, task.task_id)
+    base = _read_parent_tree(git_dir, repo, expected_parent)
+    core_options = _effective_core_options(git_dir)
+    limits = CommitLimits(ignored_allowlist=(".codexdevteam/control",), settle_seconds=0)
+    snapshot = _capture_snapshot(tree, base, task, git_dir, repo, expected_parent, limits,
+                                 limits.ignored_allowlist, core_options)
+    refused = tuple(sorted(set(paths)))
+    if not refused or any(path not in snapshot.changed for path in refused):
+        raise _Refused("QUARANTINE", "refused paths do not match the stable worktree snapshot",
+                       *refused)
+    if any(decide_write(path, task.owned_paths).allowed for path in refused):
+        raise _Refused("QUARANTINE", "refusal paths include task-owned content", *refused)
+    confirmed = _capture_snapshot(tree, base, task, git_dir, repo, expected_parent, limits,
+                                  limits.ignored_allowlist, core_options)
+    if _snapshot_signature(snapshot) != _snapshot_signature(confirmed):
+        raise _Refused("QUIESCENCE_UNPROVEN", "worktree changed before quarantine", *refused)
+
+    invocation_key = hashlib.sha256(invocation_id.encode("utf-8")).hexdigest()
+    parent_dir = git_dir / "codexdevteam" / "quarantine" / task.task_id
+    _ensure_host_directory(git_dir, parent_dir)
+    quarantine = parent_dir / invocation_key
+    quarantine.mkdir()
+    payload_dir = quarantine / "files"
+    payload_dir.mkdir()
+    manifest: list[dict[str, object]] = []
+    for index, relative in enumerate(refused):
+        item = snapshot.files.get(relative)
+        current_path = tree.joinpath(*PurePosixPath(relative).parts)
+        exists = item is not None
+        if exists:
+            if item.data is None:
+                raise _Refused("QUARANTINE", f"quarantine bytes missing: {relative}", relative)
+            _validate_path_form(relative)
+            data = item.data
+            payload = payload_dir / f"{index:04d}.bin"
+            _write_exclusive(payload, data)
+            now = current_path.stat(follow_symlinks=False)
+            signature = (now.st_dev, now.st_ino, now.st_size, now.st_mtime_ns, now.st_mode)
+            if signature != item.signature or hashlib.sha256(current_path.read_bytes()).hexdigest() != item.content_sha256:
+                raise _Refused("QUIESCENCE_UNPROVEN", f"path changed while quarantining: {relative}", relative)
+            current_sha = item.content_sha256
+        else:
+            data = b""
+            current_sha = None
+        original = base.get(relative)
+        manifest.append({
+            "path": relative, "existed": exists, "content_sha256": current_sha,
+            "size": len(data) if exists else 0,
+            "parent_mode": original[0] if original else None,
+            "parent_blob": original[1] if original else None,
+        })
+
+    manifest_path = quarantine / "manifest.json"
+    _write_exclusive(manifest_path,
+                     (json.dumps({"task_id": task.task_id, "invocation_id": invocation_id,
+                                  "expected_parent": expected_parent,
+                                  "paths": manifest}, sort_keys=True, indent=2) + "\n").encode())
+
+    for entry in manifest:
+        relative = str(entry["path"])
+        target = tree.joinpath(*PurePosixPath(relative).parts)
+        _verify_no_link_components(tree, target)
+        original = base.get(relative)
+        if original is None:
+            if target.exists():
+                info = target.stat(follow_symlinks=False)
+                if not stat.S_ISREG(info.st_mode) or _is_reparse_or_link(target):
+                    raise _Refused("QUARANTINE", f"cannot safely remove refused path: {relative}", relative)
+                target.unlink()
+                _remove_empty_parents(target.parent, tree)
+            continue
+        mode, blob = original
+        if mode not in {0o100644, 0o100755}:
+            raise _Refused("QUARANTINE", f"unsupported parent file mode for {relative}", relative)
+        data = _git(git_dir, repo, "cat-file", "blob", blob).stdout
+        _write_restored_file(tree, target, data, mode)
+
+    remaining = _capture_snapshot(tree, base, task, git_dir, repo, expected_parent, limits,
+                                  limits.ignored_allowlist, core_options)
+    outside = tuple(path for path in remaining.changed
+                    if not decide_write(path, task.owned_paths).allowed)
+    if outside:
+        raise _Refused("QUARANTINE", "out-of-scope paths remain after restore", *outside)
+    return quarantine, tuple(sorted(entry["path"] for entry in manifest))
+
+
+def archive_refused_control_outbox(repository: str | Path, worktree: str | Path,
+                                   task: TaskRecord, *, task_branch: str,
+                                   invocation_id: str, outbox: str | Path) -> tuple[Path, tuple[str, ...]]:
+    """Move one invocation's CONTROL reports out of the maker-writable worktree."""
+    repo = Path(repository).expanduser().resolve()
+    tree = Path(worktree).expanduser().resolve()
+    git_dir = _trusted_git_dir(repo)
+    _verify_worktree_pointer(git_dir, tree, task_branch)
+    source_dir = Path(outbox)
+    if source_dir.is_symlink() or not source_dir.resolve(strict=True).is_relative_to(tree):
+        raise _Refused("CONTROL_ARCHIVE", "CONTROL outbox is outside the verified worktree")
+    if not source_dir.is_dir():
+        raise _Refused("CONTROL_ARCHIVE", "CONTROL outbox is not a directory")
+    unexpected = tuple(item.name for item in source_dir.iterdir()
+                       if item.suffix.lower() != ".json")
+    if unexpected:
+        raise _Refused("CONTROL_ARCHIVE", "CONTROL outbox contains unexpected entries")
+    invocation_key = hashlib.sha256(invocation_id.encode("utf-8")).hexdigest()
+    archive_parent = git_dir / "codexdevteam" / "control-refused" / task.task_id
+    _ensure_host_directory(git_dir, archive_parent)
+    archive = archive_parent / invocation_key
+    archive.mkdir()
+    moved: list[str] = []
+    digests: list[dict[str, str]] = []
+    for source in sorted(source_dir.glob("*.json")):
+        if source.is_symlink() or _is_reparse_or_link(source):
+            raise _Refused("CONTROL_ARCHIVE", f"unsafe CONTROL report: {source.name}")
+        info = source.stat(follow_symlinks=False)
+        if not stat.S_ISREG(info.st_mode) or info.st_size > 64 * 1024:
+            raise _Refused("CONTROL_ARCHIVE", f"invalid CONTROL report: {source.name}")
+        data = source.read_bytes()
+        digest = hashlib.sha256(data).hexdigest()
+        destination = archive / source.name
+        _write_exclusive(destination, data)
+        if hashlib.sha256(destination.read_bytes()).hexdigest() != digest:
+            raise _Refused("CONTROL_ARCHIVE", f"CONTROL archive hash mismatch: {source.name}")
+        source.unlink()
+        moved.append(source.name)
+        digests.append({"name": source.name, "sha256": digest})
+    _write_exclusive(archive / "manifest.json",
+                     (json.dumps({"task_id": task.task_id, "invocation_id": invocation_id,
+                                  "reports": digests}, sort_keys=True, indent=2) + "\n").encode())
+    return archive, tuple(moved)
 
 
 @dataclass(frozen=True, slots=True)
@@ -597,6 +767,74 @@ def _snapshot_signature(snapshot: _CapturedSnapshot) -> tuple:
     return (tuple(sorted((path, item.content_sha256, item.mode,
                           item.signature) for path, item in snapshot.files.items())),
             snapshot.changed, snapshot.ignored)
+
+
+def _ensure_host_directory(root: Path, target: Path) -> None:
+    root = root.resolve(strict=True)
+    try:
+        relative = target.relative_to(root)
+    except ValueError as exc:
+        raise _Refused("QUARANTINE", "host archive path escapes Git metadata") from exc
+    current = root
+    for part in relative.parts:
+        current = current / part
+        try:
+            info = current.lstat()
+        except FileNotFoundError:
+            current.mkdir()
+            info = current.lstat()
+        if (not stat.S_ISDIR(info.st_mode) or _is_reparse_or_link(current)):
+            raise _Refused("QUARANTINE", "host archive directory is not a real directory")
+
+
+def _write_exclusive(path: Path, data: bytes) -> None:
+    try:
+        with path.open("xb") as stream:
+            stream.write(data)
+            stream.flush()
+            os.fsync(stream.fileno())
+    except FileExistsError as exc:
+        raise _Refused("QUARANTINE", f"host archive file already exists: {path.name}") from exc
+
+
+def _verify_no_link_components(root: Path, target: Path) -> None:
+    try:
+        relative = target.relative_to(root)
+    except ValueError as exc:
+        raise _Refused("QUARANTINE", "worktree path escapes its root") from exc
+    current = root
+    for part in relative.parts:
+        current = current / part
+        try:
+            info = current.lstat()
+        except FileNotFoundError:
+            continue
+        if _is_reparse_or_link(current):
+            raise _Refused("QUARANTINE", f"link or reparse point blocks restore: {current.name}")
+        if current != target and not stat.S_ISDIR(info.st_mode):
+            raise _Refused("QUARANTINE", f"non-directory path component blocks restore: {current.name}")
+
+
+def _write_restored_file(root: Path, target: Path, data: bytes, mode: int) -> None:
+    _verify_no_link_components(root, target.parent)
+    target.parent.mkdir(parents=True, exist_ok=True)
+    _verify_no_link_components(root, target)
+    temporary = target.with_name(f".{target.name}.codexdevteam-restore-{os.urandom(8).hex()}")
+    _write_exclusive(temporary, data)
+    try:
+        os.chmod(temporary, 0o755 if mode == 0o100755 else 0o644)
+        os.replace(temporary, target)
+    finally:
+        temporary.unlink(missing_ok=True)
+
+
+def _remove_empty_parents(parent: Path, root: Path) -> None:
+    while parent != root and parent.is_relative_to(root):
+        try:
+            parent.rmdir()
+        except OSError:
+            return
+        parent = parent.parent
 
 
 def _validate_file(worktree: Path, item: _FileSnapshot, limits: CommitLimits) -> None:

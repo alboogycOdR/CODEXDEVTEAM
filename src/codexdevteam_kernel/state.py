@@ -2224,13 +2224,27 @@ class StateStore:
     def transition_task(self, lease: HeadLease, task_id: str, target: TaskState, *,
                         event_id: str, expected_state: TaskState,
                         head_sha: str | None = None,
+                        project_root: str | Path | None = None,
                         now: float | None = None) -> bool:
         """Apply a lease-authorized state transition and its event atomically."""
         self.apply_pending_plan_projections(lease, now=now)
-        return self._transition_task(
+        projection = None
+        if project_root is not None:
+            task = self.get_task(task_id)
+            if task is None:
+                raise LeaseError(f"unknown task: {task_id}")
+            projection = _prepare_plan_projection(
+                project_root, task_id, target, task.assigned_worker)
+        changed = self._transition_task(
             lease, task_id, target, event_id=event_id, expected_state=expected_state,
-            head_sha=head_sha, now=now, projection=None,
+            head_sha=head_sha, now=now, projection=projection,
         )
+        if projection is not None and changed:
+            try:
+                self.apply_pending_plan_projections(lease, now=now)
+            except Exception as exc:
+                raise PlanProjectionPending(event_id, str(exc)) from exc
+        return changed
 
     def transition_task_to_review_from_gate(self, lease: HeadLease, gate: GateResult, *,
                                             event_id: str,

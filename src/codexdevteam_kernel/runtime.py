@@ -219,6 +219,7 @@ class CodexExecAdapter:
                 "CODEXDEVTEAM_RUNTIME": request.identity.runtime,
                 "CODEXDEVTEAM_MODEL": request.identity.model,
                 "CODEXDEVTEAM_TASK_ID": request.task_id or "",
+                "CODEXDEVTEAM_INVOCATION_ID": request.invocation_id,
             })
             if request.state_db_path:
                 database = Path(request.state_db_path)

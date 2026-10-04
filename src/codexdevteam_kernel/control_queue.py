@@ -20,7 +20,8 @@ def submit_control(outbox: str | Path, *, task_id: str, worker_id: str,
                    requested_state: str | None = None, progress_note: str | None = None,
                    blocked_reason: str | None = None, artifacts: tuple[str, ...] = (),
                    test_evidence: tuple[str, ...] = (), head_sha: str | None = None,
-                   event_id: str | None = None) -> Path:
+                   event_id: str | None = None,
+                   invocation_id: str | None = None) -> Path:
     """Atomically write a report. This never opens or mutates authoritative state."""
     event_id = event_id or f"control-{uuid.uuid4().hex}"
     if not _EVENT_ID.fullmatch(event_id):
@@ -35,6 +36,7 @@ def submit_control(outbox: str | Path, *, task_id: str, worker_id: str,
         requested_state=TaskState(requested_state) if requested_state else None,
         progress_note=progress_note, blocked_reason=blocked_reason,
         artifacts=tuple(artifacts), test_evidence=tuple(test_evidence), head_sha=head_sha,
+        invocation_id=invocation_id or os.environ.get("CODEXDEVTEAM_INVOCATION_ID"),
     )
     payload = {
         "protocol_version": message.protocol_version, "event_id": message.event_id,
@@ -42,7 +44,7 @@ def submit_control(outbox: str | Path, *, task_id: str, worker_id: str,
         "requested_state": message.requested_state.value if message.requested_state else None,
         "progress_note": message.progress_note, "blocked_reason": message.blocked_reason,
         "artifacts": list(message.artifacts), "test_evidence": list(message.test_evidence),
-        "head_sha": message.head_sha,
+        "head_sha": message.head_sha, "invocation_id": message.invocation_id,
     }
     encoded = (json.dumps(payload, sort_keys=True, separators=(",", ":")) + "\n").encode()
     if len(encoded) > _MAX_MESSAGE_BYTES:
@@ -72,6 +74,7 @@ def submit_control(outbox: str | Path, *, task_id: str, worker_id: str,
 
 def drain_control_outbox(store: StateStore, lease: HeadLease, outbox: str | Path,
                          *, project_root: str | Path | None = None,
+                         expected_invocation_id: str | None = None,
                          now: float | None = None) -> dict[str, tuple[str, ...]]:
     """Apply queued reports as HEAD; retain each file in applied/rejected audit dirs."""
     root = Path(outbox)
@@ -91,6 +94,9 @@ def drain_control_outbox(store: StateStore, lease: HeadLease, outbox: str | Path
             message = ControlMessage.from_dict(data)
             if message.event_id != event_id:
                 raise ValueError("CONTROL filename does not match event_id")
+            if (expected_invocation_id is not None
+                    and message.invocation_id != expected_invocation_id):
+                raise ValueError("CONTROL invocation_id does not match the active maker run")
             store.apply_control(lease, message, project_root=project_root, now=now)
             destination_dir = root / "applied"
             applied.append(event_id)

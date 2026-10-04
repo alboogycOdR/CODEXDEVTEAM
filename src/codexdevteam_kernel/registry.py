@@ -11,7 +11,7 @@ from .identity import WorkerIdentity
 
 REGISTRY_VERSION = 1
 STRICT_REQUIRED_CAPABILITIES = frozenset({
-    "control_protocol", "structured_edit_firewall", "task_worktree_isolation",
+    "control_protocol", "host_commit_boundary", "task_worktree_isolation",
     "post_run_territory_gate",
 })
 

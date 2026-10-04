@@ -20,7 +20,8 @@ from .control_queue import drain_control_outbox
 from .gate import GateResult
 from .health import StagnationSample, stale_signal
 from .host_commit import (CommitLimits, HostCommitResult, QuiescenceProof,
-                          RefusalReason, host_commit)
+                          RefusalReason, archive_refused_control_outbox, host_commit,
+                          quarantine_out_of_scope_changes, validate_owned_retry_worktree)
 from .memory import EvidenceMemory, FactInjection, render_fact_injection
 from .process_identity import ProcessIdentity, observe_process_identity
 from .registry import WorkerRegistry
@@ -695,8 +696,9 @@ class Supervisor:
             raise ValueError("gate SHA does not match the maker worktree HEAD")
         self.record_gate_outcome(lease, gate, attempt_event_id=attempt_event_id, now=now)
         control = drain_control_outbox(
-            self.store, lease, worktree / ".codexdevteam" / "control" / "outbox",
-            project_root=project_root, now=now,
+            self.store, lease, _control_outbox_path(worktree, cycle.invocation.invocation_id),
+            project_root=project_root,
+            expected_invocation_id=cycle.invocation.invocation_id, now=now,
         )
         task = self.store.get_task(gate.task_id)
         if gate.status == "passed" and task is not None and task.state is TaskState.IN_PROGRESS:
@@ -910,6 +912,7 @@ class Supervisor:
                             allowed_environment: tuple[str, ...] = (),
                             memory_injection: FactInjection | None = None,
                             defer_control_drain: bool = False,
+                            _ownership_retry_attempt: int = 0,
                             now: float | None = None) -> TaskInvocationCycleResult:
         """Launch one claimed maker once, in its isolated worktree, under HEAD lease.
 
@@ -920,6 +923,8 @@ class Supervisor:
             raise ValueError("task invocation requires supervisor running mode")
         if not isinstance(defer_control_drain, bool):
             raise ValueError("defer_control_drain must be boolean")
+        if _ownership_retry_attempt not in {0, 1}:
+            raise ValueError("ownership retry attempt must be zero or one")
         if (not isinstance(prompt, str) or not prompt.strip()
                 or not isinstance(base_ref, str) or not base_ref.strip()):
             raise ValueError("maker prompt and base_ref are required")
@@ -961,8 +966,32 @@ class Supervisor:
             ["git", "-C", str(worktree), "status", "--porcelain", "--untracked-files=all"],
             capture_output=True, text=True, check=False,
         )
-        if status.returncode or status.stdout.strip():
-            raise ValueError("maker worktree must be clean before launch")
+        if _ownership_retry_attempt == 1:
+            try:
+                if status.returncode:
+                    raise ValueError("retry worktree status could not be verified")
+                validate_owned_retry_worktree(
+                    worktrees.repository, worktree, task,
+                    task_branch=f"codexdevteam/{task.task_id}",
+                    expected_parent=worktree_info.head,
+                )
+            except Exception as exc:
+                self.store.transition_task(
+                    lease, task_id, TaskState.BLOCKED,
+                    event_id=f"host-commit-retry-preflight:{task_id}:{invocation_id}",
+                    expected_state=TaskState.CLAIMED,
+                    project_root=project_root, now=now,
+                )
+                self.store.record_event(
+                    lease, f"host-commit-retry-preflight-detail:{task_id}:{invocation_id}",
+                    {"type": "task.blocked_before_host_commit_retry", "task_id": task_id,
+                     "invocation_id": invocation_id,
+                     "reason": f"OWNERSHIP_CONFLICT: retry worktree validation failed: {exc}"},
+                    now=now,
+                )
+                raise ValueError("bounded retry blocked because worktree validation failed") from exc
+        elif status.returncode or status.stdout.strip():
+            raise ValueError("maker worktree must be clean and verifiable before launch")
 
         database = Path(state_db_path) if state_db_path is not None else self.store.path
         if database.is_symlink():
@@ -997,7 +1026,7 @@ class Supervisor:
                 timeout_seconds=timeout_seconds, writable=True,
                 allowed_environment=allowed_environment,
                 state_db_path=str(snapshot),
-                control_outbox_path=str(worktree / ".codexdevteam" / "control" / "outbox"),
+                control_outbox_path=str(_control_outbox_path(worktree, invocation_id)),
                 cancellation_receipt_dir=str(self.store.cancellation_receipt_directory),
                 cancellation_token=cancellation_token,
                 on_process_start=lambda identity: self.store.record_task_invocation_process(
@@ -1061,26 +1090,151 @@ class Supervisor:
                         "successful maker has no verified Windows Job Object proof; no commit published",
                     ),),
                 )
+        self.store.record_invocation(lease, result, now=now)
+        quarantine_path = None
+        control_archive_path = None
+        refused_control_names: tuple[str, ...] = ()
+        archive_error = None
+        retryable_ownership_refusal = False
+        if commit_result is not None and commit_result.status == "refused":
+            proof = result.quiescence_proof
+            proof_is_quiescent = (isinstance(proof, QuiescenceProof) and proof.verified
+                                  and proof.active_after_exit == 0
+                                  and proof.platform == "windows"
+                                  and proof.mechanism == "windows_job_object")
+            if proof_is_quiescent:
+                try:
+                    control_archive_path, refused_control_names = archive_refused_control_outbox(
+                        worktrees.repository, worktree, task,
+                        task_branch=f"codexdevteam/{task.task_id}",
+                        invocation_id=invocation_id,
+                        outbox=_control_outbox_path(worktree, invocation_id),
+                    )
+                except Exception as exc:
+                    archive_error = f"{type(exc).__name__}: {exc}"
+            reason_codes = [reason.code for reason in commit_result.reasons]
+            if (proof_is_quiescent and "OUTSIDE_TERRITORY" in reason_codes
+                    and commit_result.paths):
+                try:
+                    quarantine_path, _ = quarantine_out_of_scope_changes(
+                        worktrees.repository, worktree, task,
+                        task_branch=f"codexdevteam/{task.task_id}",
+                        expected_parent=worktree_info.head, invocation_id=invocation_id,
+                        paths=commit_result.paths,
+                    )
+                    retryable_ownership_refusal = True
+                except Exception as exc:
+                    archive_error = (archive_error + "; " if archive_error else "") + (
+                        f"quarantine failed: {type(exc).__name__}: {exc}")
+            retry_queued = (retryable_ownership_refusal and archive_error is None
+                            and _ownership_retry_attempt == 0)
+            refusal_digest = hashlib.sha256(json.dumps({
+                "task_id": task_id, "invocation_id": invocation_id,
+                "reason_codes": reason_codes, "paths": list(commit_result.paths),
+                "reasons": [{"code": reason.code, "detail": reason.detail}
+                            for reason in commit_result.reasons],
+            }, sort_keys=True, separators=(",", ":")).encode("utf-8")).hexdigest()
             self.store.record_event(
                 lease, f"host-commit:{invocation_id}",
                 {
-                    "type": "host_commit.refused" if commit_result.status == "refused"
-                    else "host_commit.completed",
+                    "type": "host_commit.refused",
                     "task_id": task_id,
                     "invocation_id": invocation_id,
                     "status": commit_result.status,
-                    "sha": commit_result.sha,
+                    "sha": None,
                     "paths": list(commit_result.paths),
-                    "reason_codes": [reason.code for reason in commit_result.reasons],
+                    "reason_codes": reason_codes,
+                    "reasons": [{"code": reason.code, "detail": reason.detail}
+                                for reason in commit_result.reasons],
+                    "control_reports_archived": list(refused_control_names),
+                    "control_archive_path": (str(control_archive_path)
+                                             if control_archive_path else None),
+                    "control_archive_error": archive_error,
+                    "quarantine_path": str(quarantine_path) if quarantine_path else None,
+                    "retry_queued": retry_queued,
+                    "refusal_digest": refusal_digest,
                 }, now=now,
             )
-        self.store.record_invocation(lease, result, now=now)
+            current_task = self.store.get_task(task_id)
+            if current_task is not None and current_task.state is TaskState.IN_PROGRESS:
+                if retry_queued:
+                    self.store.transition_task(
+                        lease, task_id, TaskState.CLAIMED,
+                        event_id=f"host-commit-retry:{task_id}:{invocation_id}",
+                        expected_state=TaskState.IN_PROGRESS,
+                        project_root=project_root, now=now,
+                    )
+                else:
+                    code = ("OWNERSHIP_CONFLICT" if "OUTSIDE_TERRITORY" in reason_codes
+                            else "HOST_COMMIT_REFUSED")
+                    detail = ", ".join(commit_result.paths) or "; ".join(
+                        reason.detail for reason in commit_result.reasons)
+                    blocked_reason = f"{code}: host commit refused: {detail}"
+                    self.store.transition_task(
+                        lease, task_id, TaskState.BLOCKED,
+                        event_id=f"host-commit-blocked:{task_id}:{invocation_id}",
+                        expected_state=TaskState.IN_PROGRESS,
+                        project_root=project_root, now=now,
+                    )
+                    self.store.record_event(
+                        lease, f"host-commit-blocked-detail:{task_id}:{invocation_id}",
+                        {"type": "task.blocked_by_host_commit", "task_id": task_id,
+                         "invocation_id": invocation_id, "reason": blocked_reason,
+                         "paths": list(commit_result.paths),
+                         "refusal_digest": refusal_digest}, now=now,
+                    )
+            if retry_queued:
+                retry_id = "retry-" + hashlib.sha256(
+                    f"{task_id}:{invocation_id}".encode("utf-8")).hexdigest()[:32]
+                retry_detail = "; ".join(
+                    reason.detail for reason in commit_result.reasons)
+                retry_paths = ", ".join(commit_result.paths)
+                retry_prompt = (prompt + "\n\nHEAD COMMIT REFUSAL — ONE BOUNDED RETRY\n"
+                                f"The host refused the previous commit: {retry_detail}.\n"
+                                f"Out-of-scope paths quarantined and removed: {retry_paths}.\n"
+                                "Continue only within the task's Owned_Paths. The prior owned-path "
+                                "changes remain in this worktree. Do not recreate the refused paths.")
+                return self.invoke_claimed_task(
+                    lease, task_id, invocation_id=retry_id, prompt=retry_prompt,
+                    base_ref=base_ref, worktrees=worktrees, adapters=adapters,
+                    project_root=project_root, timeout_seconds=timeout_seconds,
+                    state_db_path=state_db_path, worktree_copy=worktree_copy,
+                    allowed_environment=allowed_environment,
+                    memory_injection=memory_injection,
+                    defer_control_drain=defer_control_drain,
+                    _ownership_retry_attempt=1, now=now,
+                )
+        elif commit_result is not None:
+            self.store.record_event(
+                lease, f"host-commit:{invocation_id}",
+                {"type": "host_commit.completed", "task_id": task_id,
+                 "invocation_id": invocation_id, "status": commit_result.status,
+                 "sha": commit_result.sha, "paths": list(commit_result.paths),
+                 "reason_codes": []}, now=now,
+            )
+        elif _ownership_retry_attempt == 1 and result.status != "succeeded":
+            current_task = self.store.get_task(task_id)
+            if current_task is not None and current_task.state is TaskState.IN_PROGRESS:
+                self.store.transition_task(
+                    lease, task_id, TaskState.BLOCKED,
+                    event_id=f"host-commit-retry-failed:{task_id}:{invocation_id}",
+                    expected_state=TaskState.IN_PROGRESS,
+                    project_root=project_root, now=now,
+                )
+                self.store.record_event(
+                    lease, f"host-commit-retry-failed-detail:{task_id}:{invocation_id}",
+                    {"type": "task.blocked_after_host_commit_retry", "task_id": task_id,
+                     "invocation_id": invocation_id,
+                     "reason": f"OWNERSHIP_CONFLICT: bounded retry ended with {result.status}"},
+                    now=now,
+                )
         control = ({"applied": (), "rejected": ()}
                    if defer_control_drain or (
                        commit_result is not None and commit_result.status == "refused") else
                    drain_control_outbox(
                        self.store, lease,
-                       worktree / ".codexdevteam" / "control" / "outbox", now=now,
+                       _control_outbox_path(worktree, invocation_id),
+                       expected_invocation_id=invocation_id, now=now,
                    ))
         return TaskInvocationCycleResult(task_id, worker.identity.unit_id,
                                          str(worktree), result,
@@ -1102,6 +1256,11 @@ class Supervisor:
             result = adapter.invoke(replace(request, cancel_event=guard.lost_event))
         guard.raise_if_lost()
         return result
+
+
+def _control_outbox_path(worktree: str | Path, invocation_id: str) -> Path:
+    key = hashlib.sha256(invocation_id.encode("utf-8")).hexdigest()
+    return Path(worktree) / ".codexdevteam" / "control" / "outbox" / key
 
 
 def _cleanup_task_snapshot(snapshot: Path) -> None:

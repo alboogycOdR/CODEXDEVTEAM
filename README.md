@@ -4,14 +4,15 @@ A GPT-led development-team operating system derived from the proven DEVDEPARTMEN
 
 ## Status
 
-**Bootstrap / architecture phase.** Not production-ready yet.
+**Windows-first core implementation; pre-release.** Not production-ready yet.
 
 The initial source package lives under `src/codexdevteam_kernel/`. It contains
-provider-neutral coordination policy, a bounded Codex runtime adapter, and a
-parked-by-default, lease-fenced dispatch cycle. It is an early implementation,
-not a production-ready autonomous team. Bootstrap CI runs the kernel contract
-suite on Ubuntu and Windows. The hosted matrix passed on Ubuntu and Windows
-for Python 3.11 and 3.12 in
+provider-neutral coordination policy, a bounded Codex runtime adapter, a
+host-owned commit boundary, and a parked-by-default, lease-fenced dispatch
+cycle. Supervised maker commits are currently supported on Windows; Ubuntu is
+CI coverage only, and maker commits fail closed without a verified Windows Job
+Object proof. The hosted matrix passed on Ubuntu and Windows for Python 3.11
+and 3.12 in
 [run 37024696603](https://github.com/alboogycOdR/CODEXDEVTEAM/actions/runs/37024696603).
 The matrix builds and installs the package, smoke-checks its installed CLI
 entry points, imports the package, and runs the contract suite.

@@ -790,7 +790,7 @@ class RegistryTests(unittest.TestCase):
                                          "verified_at": "2026-10-01T00:00:00Z",
                                          "evidence_ref": "live-check-123",
                                          "verified_capabilities": [
-                                             "control_protocol", "structured_edit_firewall",
+                                             "control_protocol", "host_commit_boundary",
                                              "task_worktree_isolation",
                                              "post_run_territory_gate"]}
         self.assertEqual(WorkerRegistry.from_dict(config).resolve("builder-1").control_mode, "strict")
@@ -808,14 +808,14 @@ class RegistryTests(unittest.TestCase):
                                     "evidence_ref": "live-check-456",
                                     "verified_capabilities": ["control_protocol"]},
         })
-        with self.assertRaisesRegex(ValueError, "structured_edit_firewall"):
+        with self.assertRaisesRegex(ValueError, "host_commit_boundary"):
             WorkerRegistry.from_dict(config)
 
     def test_strict_receipt_requires_well_formed_timestamp_reference_and_capabilities(self):
         base = {
             "status": "passed", "runtime": "codex", "model": "configured-build-model",
             "verified_at": "2026-10-01T00:00:00Z", "evidence_ref": "live-check-456",
-            "verified_capabilities": ["control_protocol", "structured_edit_firewall",
+            "verified_capabilities": ["control_protocol", "host_commit_boundary",
                                       "task_worktree_isolation", "post_run_territory_gate"],
         }
         invalid_receipts = (
@@ -984,7 +984,7 @@ class SupervisorTests(unittest.TestCase):
         self.lease = self.store.acquire_head("CODEXDEVTEAM", "head", now=100)
         receipt = {"status": "passed", "runtime": "codex", "model": "builder-model",
                    "verified_at": "2026-10-01T00:00:00Z", "evidence_ref": "live-check",
-                   "verified_capabilities": ["control_protocol", "structured_edit_firewall",
+                   "verified_capabilities": ["control_protocol", "host_commit_boundary",
                                              "task_worktree_isolation",
                                              "post_run_territory_gate"]}
         self.registry = WorkerRegistry.from_dict({
@@ -1067,7 +1067,7 @@ class SupervisorTests(unittest.TestCase):
         receipt = lambda model: {
             "status": "passed", "runtime": "codex", "model": model,
             "verified_at": "2026-10-01T00:00:00Z", "evidence_ref": "live-check:" + model,
-            "verified_capabilities": ["control_protocol", "structured_edit_firewall",
+            "verified_capabilities": ["control_protocol", "host_commit_boundary",
                                       "task_worktree_isolation", "post_run_territory_gate"],
         }
         registry = WorkerRegistry.from_dict({
@@ -1220,8 +1220,8 @@ class SupervisorTests(unittest.TestCase):
         self.assertEqual(result.dispatch.assignments, (task.task_id,))
         self.assertEqual(len(result.makers), 1)
         self.assertEqual(result.makers[0].invocation.status, "succeeded")
-        self.assertEqual(self.store.get_task(task.task_id).state, TaskState.IN_PROGRESS)
-        self.assertIn("**Status:** in_progress", (project / "PLAN.md").read_text(encoding="utf-8"))
+        self.assertEqual(self.store.get_task(task.task_id).state, TaskState.BLOCKED)
+        self.assertIn("**Status:** blocked", (project / "PLAN.md").read_text(encoding="utf-8"))
         self.assertTrue(Path(result.makers[0].worktree_path).is_dir())
 
     def test_continuous_supervisor_stops_at_cycle_limit_and_stop_event(self):
@@ -1715,7 +1715,7 @@ class SupervisorTests(unittest.TestCase):
                            if event["payload"].get("type") == "runtime.invoked"
                            and event["payload"].get("purpose") == "maker")
         self.assertEqual(maker_event["memory_injection_event_id"], injection.event_id)
-        self.assertEqual(self.store.get_task(task.task_id).state, TaskState.IN_PROGRESS)
+        self.assertEqual(self.store.get_task(task.task_id).state, TaskState.BLOCKED)
         liveness = self.store.task_invocation_liveness(task_id=task.task_id)
         self.assertEqual(len(liveness), 1)
         self.assertEqual(liveness[0]["invocation_id"], "maker:100")
@@ -1777,9 +1777,12 @@ class SupervisorTests(unittest.TestCase):
                          {name: check.summary for name, check in gate.checks.items()})
         self.assertEqual(gate.sha, cycle.host_commit.sha)
 
-    def test_supervisor_keeps_control_pending_when_host_commit_refuses(self):
+    @unittest.skipUnless(os.name == "nt", "Windows Job Object host-commit integration")
+    def test_supervisor_archives_control_and_blocks_after_second_host_commit_refusal(self):
+        from dataclasses import replace
         from codexdevteam_kernel.control_queue import submit_control
         from codexdevteam_kernel.gate import GateResult
+        from codexdevteam_kernel.host_commit import QuiescenceProof
 
         project, base, task = self.prepare_claimed_maker("TASK-100-COMMIT-REFUSED")
         manager = GitWorktreeManager(project, Path(self.temp.name) / "managed-commit-refused")
@@ -1792,11 +1795,12 @@ class SupervisorTests(unittest.TestCase):
                     Path(request.control_outbox_path), task_id=task.task_id,
                     worker_id="builder", event_id="uncommitted-report",
                     requested_state="needs_review",
+                    invocation_id=request.invocation_id,
                 )
-                output = Path(request.working_directory) / "src" / "uncommitted.py"
-                output.parent.mkdir(parents=True, exist_ok=True)
-                output.write_text("value = 2\n", encoding="utf-8")
-                return result
+                output = Path(request.working_directory) / "outside-scope.txt"
+                output.write_text("out of scope\n", encoding="utf-8")
+                return replace(result, quiescence_proof=QuiescenceProof(
+                    "windows", "windows_job_object", True, 0, "fixture"))
 
         cycle = self.supervisor.invoke_claimed_task(
             self.lease, task.task_id, invocation_id="maker:commit-refused",
@@ -1804,13 +1808,119 @@ class SupervisorTests(unittest.TestCase):
             adapters={"codex": ReportingMaker()}, now=104)
         self.assertEqual(cycle.host_commit.status, "refused")
         self.assertEqual(cycle.control_applied, ())
-        self.assertEqual(self.store.get_task(task.task_id).state, TaskState.IN_PROGRESS)
-        outbox = Path(cycle.worktree_path) / ".codexdevteam" / "control" / "outbox"
-        self.assertTrue((outbox / "uncommitted-report.json").is_file())
+        self.assertEqual(self.store.get_task(task.task_id).state, TaskState.BLOCKED)
+        self.assertFalse((Path(cycle.worktree_path) / "outside-scope.txt").exists())
+        self.assertTrue(any(Path(event["payload"].get("control_archive_path", ""),
+                                "uncommitted-report.json").is_file()
+                            for event in self.store.events()
+                            if event["payload"].get("type") == "host_commit.refused"
+                            and event["payload"].get("task_id") == task.task_id))
         fabricated = GateResult(task.task_id, base, "passed", {}, "f" * 64, "fixture")
         with self.assertRaisesRegex(ValueError, "exact SHA published by a successful host commit"):
             self.supervisor.finalize_maker_gate(
                 self.lease, cycle, fabricated, attempt_event_id="forbidden-gate", now=105)
+
+    @unittest.skipUnless(os.name == "nt", "Windows Job Object host-commit integration")
+    def test_host_refusal_quarantines_outbox_and_retries_only_once(self):
+        from dataclasses import replace
+        from codexdevteam_kernel.control_queue import submit_control
+        from codexdevteam_kernel.host_commit import QuiescenceProof
+
+        project, base, task = self.prepare_claimed_maker("TASK-100-REFUSAL-RETRY")
+        manager = GitWorktreeManager(project, Path(self.temp.name) / "managed-refusal-retry")
+        calls = []
+
+        class RetryMaker:
+            def invoke(inner_self, request):
+                calls.append(request.invocation_id)
+                result = self.FakeInvocationAdapter().invoke(request)
+                worktree = Path(request.working_directory)
+                owned = worktree / "src" / "first-attempt.py"
+                owned.parent.mkdir(parents=True, exist_ok=True)
+                if len(calls) == 1:
+                    owned.write_text("preserved = True\n", encoding="utf-8")
+                    (worktree / "outside-scope.txt").write_text("quarantined\n", encoding="utf-8")
+                    submit_control(
+                        Path(request.control_outbox_path), task_id=task.task_id,
+                        worker_id="builder", event_id="refused-progress",
+                        progress_note="must not replay", invocation_id=request.invocation_id,
+                    )
+                else:
+                    self_outer.assertTrue(owned.is_file())
+                    self_outer.assertFalse((worktree / "outside-scope.txt").exists())
+                    (worktree / "src" / "second-attempt.py").write_text(
+                        "completed = True\n", encoding="utf-8")
+                    submit_control(
+                        Path(request.control_outbox_path), task_id=task.task_id,
+                        worker_id="builder", event_id="current-progress",
+                        progress_note="current invocation only", invocation_id=request.invocation_id,
+                    )
+                return replace(result, quiescence_proof=QuiescenceProof(
+                    "windows", "windows_job_object", True, 0, "fixture"))
+
+        self_outer = self
+        cycle = self.supervisor.invoke_claimed_task(
+            self.lease, task.task_id, invocation_id="maker:refusal-retry",
+            prompt="implement", base_ref=base, worktrees=manager,
+            adapters={"codex": RetryMaker()}, defer_control_drain=True, now=104)
+        self.assertEqual(len(calls), 2)
+        self.assertNotEqual(calls[0], calls[1])
+        self.assertEqual(cycle.host_commit.status, "committed", cycle.host_commit.reasons)
+        refusal = next(event["payload"] for event in self.store.events()
+                       if event["payload"].get("type") == "host_commit.refused"
+                       and event["payload"].get("invocation_id") == calls[0])
+        self.assertTrue(refusal["retry_queued"])
+        self.assertIn("refused-progress.json", refusal["control_reports_archived"])
+        quarantine = Path(refusal["quarantine_path"])
+        self.assertTrue((quarantine / "manifest.json").is_file())
+        self.assertFalse((Path(cycle.worktree_path) / "outside-scope.txt").exists())
+        task_b = "TASK-100-REFUSAL-RETRY-B"
+        worktree_b = manager.create(task_b, f"codexdevteam/{task_b}", base)
+        self.assertFalse((worktree_b.path / "outside-scope.txt").exists())
+
+        gate = GateRunner(project, Path(self.temp.name) / "gate-refusal-retry").run(
+            self.store.get_task(task.task_id), cycle.worktree_path,
+            expected_sha=cycle.host_commit.sha, base_ref=base,
+            commands={name: [sys.executable, "-c", "pass"]
+                      for name in ("build", "typecheck", "test_full")},
+            active_tasks=tuple(self.store.list_tasks()),
+        )
+        finalized = self.supervisor.finalize_maker_gate(
+            self.lease, cycle, gate, attempt_event_id="gate-refusal-retry", now=105)
+        self.assertEqual(finalized.control_applied, ("current-progress",))
+        self.assertNotIn("refused-progress", finalized.control_applied)
+
+    @unittest.skipUnless(os.name == "nt", "Windows Job Object host-commit integration")
+    def test_host_commit_refusal_twice_blocks_without_third_maker(self):
+        from dataclasses import replace
+        from codexdevteam_kernel.host_commit import QuiescenceProof
+
+        project, base, task = self.prepare_claimed_maker("TASK-100-REFUSAL-BLOCK")
+        manager = GitWorktreeManager(project, Path(self.temp.name) / "managed-refusal-block")
+        calls = []
+
+        class AlwaysOutsideMaker:
+            def invoke(inner_self, request):
+                calls.append(request.invocation_id)
+                result = self.FakeInvocationAdapter().invoke(request)
+                Path(request.control_outbox_path).mkdir(parents=True, exist_ok=True)
+                (Path(request.working_directory) / "outside-scope.txt").write_text(
+                    "out of scope\n", encoding="utf-8")
+                return replace(result, quiescence_proof=QuiescenceProof(
+                    "windows", "windows_job_object", True, 0, "fixture"))
+
+        cycle = self.supervisor.invoke_claimed_task(
+            self.lease, task.task_id, invocation_id="maker:refusal-block",
+            prompt="implement", base_ref=base, worktrees=manager,
+            adapters={"codex": AlwaysOutsideMaker()}, now=104)
+        self.assertEqual(len(calls), 2)
+        self.assertEqual(cycle.host_commit.status, "refused")
+        self.assertEqual(self.store.get_task(task.task_id).state, TaskState.BLOCKED)
+        self.assertFalse((Path(cycle.worktree_path) / "outside-scope.txt").exists())
+        blocked = next(event["payload"] for event in self.store.events()
+                       if event["payload"].get("type") == "task.blocked_by_host_commit"
+                       and event["payload"].get("task_id") == task.task_id)
+        self.assertTrue(blocked["reason"].startswith("OWNERSHIP_CONFLICT:"))
 
     @unittest.skipUnless(os.name == "nt", "Windows Job Object host-commit integration")
     def test_deferred_maker_control_drains_only_after_head_gate_registration(self):
@@ -1830,6 +1940,7 @@ class SupervisorTests(unittest.TestCase):
                     Path(request.control_outbox_path), task_id=task.task_id,
                     worker_id="builder", event_id="a-maker-progress",
                     progress_note="Implementation is ready for gate review.",
+                    invocation_id=request.invocation_id,
                 )
                 return replace(result, quiescence_proof=QuiescenceProof(
                     "windows", "windows_job_object", True, 0, "fixture"))
@@ -1840,7 +1951,8 @@ class SupervisorTests(unittest.TestCase):
             defer_control_drain=True, now=104)
         self.assertEqual(cycle.host_commit.status, "committed",
                          (cycle.host_commit.reasons, cycle.host_commit.paths))
-        outbox = Path(cycle.worktree_path) / ".codexdevteam" / "control" / "outbox"
+        outbox = (Path(cycle.worktree_path) / ".codexdevteam" / "control" / "outbox"
+                  / hashlib.sha256(cycle.invocation.invocation_id.encode()).hexdigest())
         sha = cycle.host_commit.sha
         gate = GateRunner(project, Path(self.temp.name) / "gate-artifacts-103").run(
             self.store.get_task(task.task_id), cycle.worktree_path,
@@ -1855,6 +1967,7 @@ class SupervisorTests(unittest.TestCase):
             outbox, task_id=task.task_id, worker_id="builder", event_id="maker-needs-review",
             requested_state="needs_review", test_evidence=(gate.test_run_result.evidence_ref,),
             head_sha=sha,
+            invocation_id=cycle.invocation.invocation_id,
         )
         finalized = self.supervisor.finalize_maker_gate(
             self.lease, cycle, gate, attempt_event_id="gate-maker-103", now=105)
@@ -1916,7 +2029,7 @@ class SupervisorTests(unittest.TestCase):
                                 "verified_at": "2026-10-01T00:00:00Z",
                                 "evidence_ref": "live-check",
                                 "verified_capabilities": [
-                                    "control_protocol", "structured_edit_firewall",
+                                    "control_protocol", "host_commit_boundary",
                                     "task_worktree_isolation", "post_run_territory_gate",
                                 ],
                             }},
@@ -2845,6 +2958,23 @@ class ControlTests(unittest.TestCase):
             self.assertEqual(db.get_task(task.task_id).state, TaskState.IN_PROGRESS)
             self.assertIn("**Status:** in_progress", plan.read_text(encoding="utf-8"))
             self.assertTrue((outbox / "applied" / "report-outbox.json").is_file())
+
+    def test_control_report_from_another_invocation_is_rejected(self):
+        from codexdevteam_kernel.control_queue import drain_control_outbox, submit_control
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            db = StateStore(root / "state.sqlite")
+            lease = db.acquire_head("CODEXDEVTEAM", "head", now=100)
+            db.seed_task(lease, self.task(state=TaskState.CLAIMED),
+                         event_id="seed-control-invocation", now=101)
+            outbox = root / "outbox"
+            submit_control(outbox, task_id="TASK-20", worker_id="builder-1",
+                           requested_state="in_progress", event_id="old-run-report",
+                           invocation_id="maker:old")
+            drained = drain_control_outbox(
+                db, lease, outbox, expected_invocation_id="maker:current", now=102)
+            self.assertEqual(drained, {"applied": (), "rejected": ("old-run-report",)})
+            self.assertEqual(db.get_task("TASK-20").state, TaskState.CLAIMED)
 
     def test_control_transition_queues_and_recovers_plan_projection(self):
         with tempfile.TemporaryDirectory() as temp:
@@ -4383,6 +4513,7 @@ class HeadLeaseTests(unittest.TestCase):
             tables = db.execute("SELECT name FROM sqlite_master WHERE type='table'").fetchall()
         finally:
             db.close()
+
         self.assertEqual([row[0] for row in rows], ["TASK-ACTIVE-OTHER", "TASK-SNAPSHOT"])
         snapshot_task = TaskRecord.from_dict(json.loads(rows[1][1]))
         self.assertEqual(snapshot_task.title, "Hook policy snapshot")

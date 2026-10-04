@@ -33,7 +33,7 @@ timeout = 10
 statusMessage = "Checking CODEXDEVTEAM write territory"
 ```
 
-The hook explicitly denies malformed events, unknown task/worker context,
+When active, the hook explicitly denies malformed events, unknown task/worker context,
 unassigned or non-active tasks, paths outside Owned_Paths, Protected_Grants
 violations, overlapping active ownership, path traversal, symlink escapes,
 `PLAN.md`, and detected credential-like content. It never trusts a role name
@@ -41,16 +41,24 @@ as HEAD authority; authoritative state changes use the separate lease-checked
 CONTROL/PLAN path.
 
 This adapter covers structured edit tools only. Shell commands can write files
-through many mechanisms and hook coverage is not a complete sandbox. Strict
-worker receipts must declare `control_protocol`, `structured_edit_firewall`,
-`task_worktree_isolation`, and `post_run_territory_gate`; live verification must
-prove the hook actually runs for the configured
-Codex runtime and must retain worktree isolation plus the post-run territory
-gate. Codex documents that a hook callback error may allow the tool call to
-continue, so installations must test hook connectivity and explicitly deny
-policy failures before treating the runtime as verified. Never infer strict
-enforcement from the presence of this configuration alone. Registry validation
-requires a timezone-qualified ISO 8601 verification timestamp, a non-empty
-evidence reference, unique capability names, and rejects timestamps more than
-five minutes in the future. These schema checks do not validate the referenced
-evidence; live end-to-end verification remains required.
+through many mechanisms, so the hook is an optional pre-write guard and
+efficiency aid, not the territory security boundary. A fresh headless Codex
+smoke did not produce a direct hook trace; activation for that invocation is
+unverified. Do not claim that the hook blocked writes unless a nonce-bound hook
+trace proves it.
+
+The territory boundary for a supervised maker is the host commit step: after
+verified Windows process quiescence, the host validates the complete worktree
+against `Owned_Paths` and publishes no commit if any changed path is outside
+scope. Strict worker receipts require `control_protocol`,
+`host_commit_boundary`, `task_worktree_isolation`, and
+`post_run_territory_gate`. A live hook may be recorded as an additional
+capability, but is not required for that commit-time guarantee. The runtime
+sandbox and task worktree constrain where a maker can write; they do not make
+the optional hook's activation observable.
+
+Registry validation requires a timezone-qualified ISO 8601 verification
+timestamp, a non-empty evidence reference, unique capability names, and rejects
+timestamps more than five minutes in the future. These schema checks do not
+validate the referenced evidence; each required capability still needs
+evidence from the configured runtime and host path.
