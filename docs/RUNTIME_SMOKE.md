@@ -310,6 +310,9 @@ Git excludes automatically; the onboarding guide records this setup step.
   harness's redundant `in_progress` report was rejected because the maker
   invocation had already moved the task to `in_progress`; the task reached
   `needs_review` through the applied report.
+- This historical smoke used a strict receipt naming the then-required
+  structured-edit firewall capability. That receipt does not satisfy the
+  current strict registry floor, which requires `host_commit_boundary`.
 - After the first lease expired, the same SQLite store was reacquired at
   generation 2. With that lease, a strict receipt matching `codex` /
   `gpt-6-sol` and naming all four required capabilities was accepted; strict
@@ -568,7 +571,7 @@ for strict mode until those capabilities are verified without the bypass.
   second refusal, and a separate task worktree remaining uncontaminated. See
   `tests/test_kernel_contracts.py::SupervisorTests`.
 - Full local Windows contract suite: **275 passed, 8 skipped**. Hosted branch-head
-  CI run [37184968789](https://github.com/alboogycOdR/CODEXDEVTEAM/actions/runs/37184968789)
+  CI run [37185171206](https://github.com/alboogycOdR/CODEXDEVTEAM/actions/runs/37185171206)
   passed all four Ubuntu/Windows × Python 3.11/3.12 jobs, including the updated
   refusal-handling and strict-capability coverage.
 - Supported supervised maker commits are Windows-only. Ubuntu/Windows hosted

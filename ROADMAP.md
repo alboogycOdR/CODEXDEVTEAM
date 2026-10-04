@@ -66,8 +66,9 @@ POSIX process-group coverage.
 Earlier runs passed 210 tests as root and as an unprivileged UID, before those
 latest additions; a focused current cancellation/schema slice also passed 24
 tests with one Windows-only skip. Debian container evidence is supplementary
-Linux evidence; Ubuntu WSL remains outstanding. Hosted CI passed on Ubuntu and
-Windows with Python 3.11 and 3.12 (run 37024696603).
+Linux evidence; WSL startup timed out during exploratory checks and is not a
+release prerequisite. Hosted CI passed on Ubuntu and Windows with Python 3.11 and 3.12 (branch-head
+run [37185171206](https://github.com/alboogycOdR/CODEXDEVTEAM/actions/runs/37185171206)).
 
 The verification gate now runs configured commands on both the task SHA and a
 temporary detached baseline worktree, attributes exact matching failures, and
@@ -81,11 +82,12 @@ now checks structured file-edit events and rejects malformed or unverified
 context with an explicit denial. The post-run gate requires the current full
 task snapshot, rejects paths reserved by other active tasks, checks both sides
 of renames, and includes active territory owners in its result fingerprint.
-Strict registry receipts require verified
-CONTROL, structured-edit firewall, worktree-isolation, and post-run territory
-capabilities. The local single-store disposable Codex smoke now covers that
-set, with the maker edit, hook, CONTROL drain, and HEAD gate evidence recorded
-in `docs/RUNTIME_SMOKE.md`. The maker left its file uncommitted; the fixture
+Strict registry receipts require verified CONTROL, host commit boundary,
+worktree-isolation, and post-run territory capabilities. Historical disposable
+Codex smoke evidence for the structured-edit firewall does not satisfy the
+current host-commit-boundary receipt. The local single-store disposable Codex
+smoke records the earlier capability set, with maker edit, hook, CONTROL drain,
+and HEAD gate evidence in `docs/RUNTIME_SMOKE.md`. The maker left its file uncommitted; the fixture
 HEAD harness supplied that commit and a redundant progress report, which HEAD
 rejected because the task was already in progress. This does not satisfy the
 deferred real-project pilot. Claude adapters remain unverified, and Codex shell
@@ -284,7 +286,7 @@ See
 - [x] Centralize role -> model/effort policy.
 - [x] Implement bounded headless invocation + ledger.
 - [x] Implement exclusive HEAD lease.
-- [ ] Implement controlled DEVDEPARTMENT <-> CODEXDEVTEAM handover.
+- [deferred to v0.2] Implement controlled DEVDEPARTMENT <-> CODEXDEVTEAM handover.
 - Handover source/target matrix, operational evidence requirements, an incomplete hash-bound map-template command, a read-only task-map preview, and lease-fenced inactive staging into an empty target state store are documented in `docs/HANDOVER_MATRIX.md`; execution still lacks incumbent process fencing, durable activation, and reverse transfer.
 - [x] Prove maker != checker enforcement with mixed runtimes.
 
@@ -309,7 +311,7 @@ Derived from TIERED_ROUTING_AND_MEMORY_2026-09:
 - [x] capacity/quota-aware routing;
 - [x] bounded run-log fast job with strict schema/evidence validation, one retry, and escalation event;
 - [x] optional fast-tier production dispatch integration that can only restrict independently observed capacity;
-- [ ] representative redacted field-log corpus and measured accuracy before routine enablement;
+- [deferred beyond v0.1] representative redacted field-log corpus and measured accuracy before routine enablement;
 - Synthetic parser-contract fixtures now cover six categories; they are explicitly not field accuracy evidence.
 - Added a read-only labeled-corpus evaluator reporting coverage, kind/evidence/reset-time accuracy, exact combined accuracy, per-class precision/recall/F1, and confusion counts; no representative field corpus or accuracy result is claimed. Synthetic six-case scoring returns 100% against its own labels only and is not field accuracy evidence.
 - [x] cited fact storage, scoped retrieval, injection ledger, and lifecycle kernel;
@@ -331,19 +333,19 @@ Derived from TIERED_ROUTING_AND_MEMORY_2026-09:
 - [x] document the current CODEXDEVTEAM/DEVDEPARTMENT compatibility-version matrix;
 - [x] add versioned executable metadata-compatibility gates that fail closed without implying activation;
 - [x] define the safe handover migration matrix and the pinned Wave E refusal reasons;
-- [ ] verify process-fenced handover, state translation, and reverse transfer on a real project.
+- [deferred to v0.2] verify process-fenced handover, state translation, and reverse transfer on a real project.
 
 ## Phase 6 — Pilot
 
 - [x] Complete a fresh disposable Windows project through maker, host commit, exact-SHA gate, and independent checker. The TextTidy pilot reached `done`; the host commit boundary provides territory enforcement at commit time. Pre-write hook activation is optional and remains unverified in the latest headless attempt; see `docs/RUNTIME_SMOKE.md`.
 - Disposable Git-project integration coverage now spans inactive install, hook decisions, CONTROL, test evidence, gate, and review, but uses fixture runtime/checker receipts and does not satisfy the live pilot.
 - A live Codex disposable TextTidy utility pilot reached `done` at `a664233e4b5470ebe53a47b0a05ed32849e944b7` with a passing exact-SHA gate and independent checker approval. The Windows host committed the maker's owned-path change and ran the gate because the Codex sandbox could not write shared `.git` metadata. The pilot and deterministic Windows lifecycle regression are evidence for host commit, exact-SHA gate, and independent review; direct hook activation tracing remains open. Details are in `docs/RUNTIME_SMOKE.md`.
-- The Windows host-commit boundary is wired into supervisor cycles, gate finalization requires the exact committed SHA, and refused CONTROL is invocation-bound and archived. Refused out-of-scope files are quarantined in host-owned Git metadata and restored out of the worktree; one bounded retry is allowed, then the task is blocked with `OWNERSHIP_CONFLICT`. Windows regressions cover refusal, quarantine, retry, stale-report rejection, and cross-task isolation. The full local Windows contract suite passes (**275 passed, 8 skipped**). Hosted branch-head CI run [37184968789](https://github.com/alboogycOdR/CODEXDEVTEAM/actions/runs/37184968789) passed all Ubuntu/Windows × Python 3.11/3.12 jobs. Supported supervised maker commits are Windows-only; Linux is CI coverage and commits fail closed without a verified Windows Job Object proof.
-- [ ] Hand an existing DEVDEPARTMENT project to CODEXDEVTEAM and back.
+- The Windows host-commit boundary is wired into supervisor cycles, gate finalization requires the exact committed SHA, and refused CONTROL is invocation-bound and archived. Refused out-of-scope files are quarantined in host-owned Git metadata and restored out of the worktree; one bounded retry is allowed, then the task is blocked with `OWNERSHIP_CONFLICT`. Windows regressions cover refusal, quarantine, retry, stale-report rejection, and cross-task isolation. The full local Windows contract suite passes (**275 passed, 8 skipped**). Hosted branch-head CI run [37185171206](https://github.com/alboogycOdR/CODEXDEVTEAM/actions/runs/37185171206) passed all Ubuntu/Windows × Python 3.11/3.12 jobs. Supported supervised maker commits are Windows-only; Linux is CI coverage and commits fail closed without a verified Windows Job Object proof.
+- [deferred to v0.2] Hand an existing DEVDEPARTMENT project to CODEXDEVTEAM and back.
 - [x] Verify no duplicate claims/reviews under lease contention across two store connections.
-- [ ] Measure first-pass rate, review sessions, gate rejection rate and model spend.
+- [deferred beyond v0.1] Measure first-pass rate, review sessions, gate rejection rate and model spend.
 - A `measure_pilot()` report now exposes these metrics from verified review/gate receipts; real model spend and operational sample data are still required to complete the measurement.
-- [ ] Tag v0.1 after the fresh-project core is verified and merged. DEVDEPARTMENT handover and reverse transfer are deferred interoperability work; the proposed v0.1/v0.2 split is pending the project owner's decision.
+- [ ] Tag v0.1 after the fresh-project core is reviewed and merged. DEVDEPARTMENT handover and reverse transfer, including process-fencing evidence, are explicitly deferred to v0.2.
 
 ## Deferred until evidence justifies them
 

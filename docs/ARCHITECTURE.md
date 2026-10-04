@@ -97,8 +97,10 @@ owners in its fingerprint, rejecting changes that overlap another claimed,
 in-progress, or needs-review task. It applies the same protected-path/grant
 rules and rejects changed symlinks resolving outside the worktree. Arbitrary
 shell writes remain a post-run gate responsibility, so
-strict worker receipts now require explicit control, structured-edit firewall,
-task-worktree, and post-run territory capabilities.
+strict worker receipts require explicit CONTROL, host commit boundary,
+task-worktree, and post-run territory capabilities. Structured-edit firewall
+evidence is an optional pre-write defense and does not replace the host commit
+boundary required for strict dispatch.
 Approved completion requires a passed
 gate artifact registered under the HEAD lease and an independent successful
 checker invocation receipt bound to the same task SHA and gate fingerprint.

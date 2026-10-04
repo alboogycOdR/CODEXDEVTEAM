@@ -12,8 +12,8 @@ host-owned commit boundary, and a parked-by-default, lease-fenced dispatch
 cycle. Supervised maker commits are currently supported on Windows; Ubuntu is
 CI coverage only, and maker commits fail closed without a verified Windows Job
 Object proof. The hosted matrix passed on Ubuntu and Windows for Python 3.11
-and 3.12 in
-[run 37024696603](https://github.com/alboogycOdR/CODEXDEVTEAM/actions/runs/37024696603).
+and 3.12 in the latest branch-head run
+[37185171206](https://github.com/alboogycOdR/CODEXDEVTEAM/actions/runs/37185171206).
 The matrix builds and installs the package, smoke-checks its installed CLI
 entry points, imports the package, and runs the contract suite.
 
