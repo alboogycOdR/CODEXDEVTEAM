@@ -1,0 +1,23 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "codexdevteam-kernel"
+version = "0.1.0"
+description = "Provider-neutral coordination kernel for CODEXDEVTEAM"
+requires-python = ">=3.11"
+license = { text = "Proprietary" }
+
+[project.scripts]
+codexdevteam-test = "codexdevteam_kernel.test_cli:main"
+codexdevteam-codex-hook = "codexdevteam_kernel.codex_hook:main"
+codexdevteam-control = "codexdevteam_kernel.control_cli:main"
+codexdevteam = "codexdevteam_kernel.onboarding_cli:main"
+codexdevteam-fast-eval = "codexdevteam_kernel.fast_tier_eval_cli:main"
+
+[tool.setuptools]
+package-dir = { "" = "src" }
+
+[tool.setuptools.packages.find]
+where = ["src"]

@@ -4,7 +4,18 @@ A GPT-led development-team operating system derived from the proven DEVDEPARTMEN
 
 ## Status
 
-**Bootstrap / architecture phase.** Not production-ready yet.
+**Windows-first core implementation; pre-release.** Not production-ready yet.
+
+The initial source package lives under `src/codexdevteam_kernel/`. It contains
+provider-neutral coordination policy, a bounded Codex runtime adapter, a
+host-owned commit boundary, and a parked-by-default, lease-fenced dispatch
+cycle. Supervised maker commits are currently supported on Windows; Ubuntu is
+CI coverage only, and maker commits fail closed without a verified Windows Job
+Object proof. The hosted matrix passed on Ubuntu and Windows for Python 3.11
+and 3.12 in the latest branch-head run
+[37185171206](https://github.com/alboogycOdR/CODEXDEVTEAM/actions/runs/37185171206).
+The matrix builds and installs the package, smoke-checks its installed CLI
+entry points, imports the package, and runs the contract suite.
 
 ## Lineage
 
@@ -30,6 +41,22 @@ Default topology:
 
 Concrete model IDs are configuration, not architecture.
 
+## Install into a project
+
+Install the package, inspect the target, then create an inactive installation:
+
+```powershell
+python -m pip install .
+codexdevteam inspect --project C:\Projects\MY-PROJECT
+codexdevteam init --project C:\Projects\MY-PROJECT
+codexdevteam upgrade --project C:\Projects\MY-PROJECT
+codexdevteam usage --state-db C:\Projects\MY-PROJECT\.codexdevteam\project\state.sqlite
+```
+
+`init` supports fresh projects and non-destructive DEVDEPARTMENT sidecars. It
+does not take HEAD authority or activate supervision. Existing installations
+and ambiguous dual installations require an explicit upgrade or handover path.
+
 ## Core invariants
 
 1. Exactly one active HEAD per project.
@@ -49,4 +76,14 @@ Concrete model IDs are configuration, not architecture.
 - `docs/ARCHITECTURE.md`
 - `docs/INTEROPERABILITY.md`
 - `docs/ONBOARDING.md`
+- `docs/TEST_RUNNER.md`
+- `docs/CODEX_HOOKS.md`
+- `docs/CONTROL.md`
+- `docs/EVIDENCE_MEMORY.md`
+- `docs/USAGE_REPORTING.md`
+- `docs/PUBLISHING.md`
+- `docs/PLAN_ARCHIVE.md`
+- `docs/FAST_TIER.md`
+- `docs/COMPATIBILITY_MATRIX.md`
+- `docs/RUNTIME_SMOKE.md`
 - `ROADMAP.md`
