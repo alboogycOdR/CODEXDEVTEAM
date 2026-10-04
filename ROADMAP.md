@@ -363,6 +363,15 @@ incumbent project is changed.
   interaction with the existing in-progress recovery path; the guard was
   narrowed and focused coverage now passes. The callback must still perform
   gate/checker/review; an end-to-end Windows host remains open below.
+- [x] On the user-selected `walkietalkie-keryx` frozen snapshot, validate a
+  hash-bound handover map and stage inactive target state in a separate local
+  database. The source PLAN parsed 114 tasks (109 historical, 5 open); four
+  blocked tasks remain blocked and the in-progress task returns to pending,
+  all unassigned. Preserve legacy context only for the five open tasks; secret
+  scan passed. Target supervisor remains parked and the staging lease expired.
+  The original checkout's Git state was reverified unchanged. This proves
+  state translation/staging only; incumbent process fencing, activation,
+  unattended runs, and return transfer remain open.
 - [ ] Implement the Windows unattended host entrypoint and lifecycle around
   the existing supervisor APIs: explicit activation, continuous lease-safe
   operation, park/resume, clean stop/status, and restart recovery. It must run
