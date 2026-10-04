@@ -543,8 +543,17 @@ for strict mode until those capabilities are verified without the bypass.
   3.11/3.12 jobs ([run 37158591080](https://github.com/alboogycOdR/CODEXDEVTEAM/actions/runs/37158591080)).
   The prior run had two Windows Python 3.11 lease-test timing flakes with
   sub-150 ms expirations; the fixtures now use wider renewal windows.
-- Still outstanding: hook events must be captured directly in one fresh,
+- Still outstanding: hook events must be captured directly in a fresh,
   normally trusted Codex run, bound to a host-generated run nonce. The
   interactive trusted-hook allow/deny smoke and the separate headless attempt
-  remain distinct evidence; the latter is still inconclusive. Follow the
-  one-attempt plain-PowerShell protocol in `docs/WINDOWS_SANDBOX_BOUNDARY.md`.
+  remain distinct evidence. The 2026-10-04 plain-PowerShell attempt completed
+  quiescently (exit 0; zero active processes), but its nonce-bound trace was
+  empty and both the owned and out-of-scope probes were created. Its JSONL
+  contained the word "hook" only in ordinary prompt/assistant text; that
+  substring check is not hook-event evidence. The active user trust store had
+  entries for earlier disposable project paths but none for this new fixture
+  path, making missing project-hook trust a likely explanation, not a proven
+  cause. Record this attempt as **inconclusive / hook not observed**, not a
+  pass. Do not infer territory enforcement from this run. No second headless
+  attempt was made. The host commit and exact-SHA gate evidence above is
+  independent of this hook result.
