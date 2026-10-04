@@ -345,7 +345,64 @@ Derived from TIERED_ROUTING_AND_MEMORY_2026-09:
 - [x] Verify no duplicate claims/reviews under lease contention across two store connections.
 - [deferred beyond v0.1] Measure first-pass rate, review sessions, gate rejection rate and model spend.
 - A `measure_pilot()` report now exposes these metrics from verified review/gate receipts; real model spend and operational sample data are still required to complete the measurement.
-- [ ] Tag v0.1 after the fresh-project core is reviewed and merged. DEVDEPARTMENT handover and reverse transfer, including process-fencing evidence, are explicitly deferred to v0.2.
+- [x] Tag v0.1 after the fresh-project core was reviewed and merged: `v0.1.0` points to merge commit `bfd2f29a5bf08927b57228209617e94b88ddf0b2` (2026-10-04). DEVDEPARTMENT handover and reverse transfer, including process-fencing evidence, are explicitly deferred to v0.2.
+
+## Phase 7 — v0.2 DEVDEPARTMENT parity and unattended operation
+
+v0.2 is complete only when CODEXDEVTEAM has safely taken control of an
+approved existing DEVDEPARTMENT project, operated it unattended within its
+configured safety limits, and returned control and task state without data
+loss or overlapping HEAD authority. Install and sidecar setup remain inactive.
+The live project pilot must be explicitly selected and authorized before any
+incumbent project is changed.
+
+- [ ] Implement and verify a host-specific incumbent fence: disable automatic
+  restart, stop the incumbent supervisor, reconcile all builder/checker/review/
+  push/sync children, and produce tamper-evident evidence that the full write-
+  capable process set is quiescent. Missing or ambiguous evidence must refuse
+  activation.
+- [ ] Complete reviewed, hash-bound state translation in both directions.
+  Preserve source state and uncommitted work; define each task/status/field
+  mapping; keep source-completed work from becoming CODEXDEVTEAM-approved
+  completion; make staging idempotent and recoverable after interruption.
+- [ ] Implement a lease-fenced, crash-recoverable activation and return
+  transaction. It must consume fresh source-fence evidence, enforce exactly
+  one active HEAD, and refuse if either side's process or lease state is
+  uncertain.
+- [ ] Prove DEVDEPARTMENT -> CODEXDEVTEAM -> DEVDEPARTMENT round-trip transfer
+  on the approved real project, including open, blocked, completed, and
+  needs-review task cases, and verify incumbent files and state are preserved.
+- [ ] Demonstrate unattended operation on a bounded representative task set:
+  dispatch configured makers, run exact-SHA mechanical gates before independent
+  review, recover or escalate on failures, respect budgets/timeouts, and reach
+  a defined terminal state without an operator advancing each task.
+- [ ] Record live strict-verification evidence for every builder enabled in
+  the pilot, bound to its runtime and configured model. Do not infer a model's
+  capabilities from another model's receipt.
+- [ ] Measure first-pass rate, review sessions, gate rejection, escalations,
+  recovery outcomes, elapsed time, and configured model spend from verified
+  pilot receipts. Keep optional fast-tier routing disabled until representative
+  redacted field logs show the agreed accuracy threshold.
+- [ ] Pass release CI on Windows with the supported Python versions; Linux
+  remains compatibility CI only and is not part of supervised maker execution.
+- [ ] Publish v0.2 release notes that state proven behavior, enabled runtimes,
+  host limitations, recovery steps, and any remaining parity gaps.
+
+### v0.2 release gates
+
+1. Source-fence evidence is checked by the host and remains valid through the
+   activation transaction; stale, reused, incomplete, or unverifiable evidence
+   cannot activate either HEAD.
+2. Exactly one control plane can claim the project across crashes and retries;
+   interruption at every handover phase has a tested safe recovery path.
+3. Both transfer directions preserve the reviewed mapping and source data, and
+   the completed round trip leaves no duplicate claims, reviews, or active
+   supervisor processes.
+4. The bounded unattended pilot reaches its agreed completion criteria using
+   only strict-verified configured workers, with mechanical checks before
+   independent model judgment and explicit escalation on unresolved failure.
+5. The measured pilot report and Windows release CI pass; operator runbooks and
+   limitations match the evidence actually collected.
 
 ## Deferred until evidence justifies them
 

@@ -4,7 +4,10 @@ A GPT-led development-team operating system derived from the proven DEVDEPARTMEN
 
 ## Status
 
-**Windows-first core implementation; pre-release.** Not production-ready yet.
+**v0.1.0 released 2026-10-04.** This is the Windows-first fresh-project
+core; it is not yet at DEVDEPARTMENT parity. The unattended supervisor remains
+parked until an operator explicitly activates it. v0.2 is focused on verified
+DEVDEPARTMENT handover and return, and representative unattended operation.
 
 The initial source package lives under `src/codexdevteam_kernel/`. It contains
 provider-neutral coordination policy, a bounded Codex runtime adapter, a
