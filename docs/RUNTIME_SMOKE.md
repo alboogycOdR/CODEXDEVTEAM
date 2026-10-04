@@ -568,7 +568,9 @@ for strict mode until those capabilities are verified without the bypass.
   second refusal, and a separate task worktree remaining uncontaminated. See
   `tests/test_kernel_contracts.py::SupervisorTests`.
 - Full local Windows contract suite: **275 passed, 8 skipped**. Hosted branch-head
-  CI has not yet run against these refusal-handling and strict-capability changes.
+  CI run [37184968789](https://github.com/alboogycOdR/CODEXDEVTEAM/actions/runs/37184968789)
+  passed all four Ubuntu/Windows × Python 3.11/3.12 jobs, including the updated
+  refusal-handling and strict-capability coverage.
 - Supported supervised maker commits are Windows-only. Ubuntu/Windows hosted
   CI covers the portable contract suite; Linux maker commits fail closed because
   the supervisor currently requires a verified Windows Job Object proof.
