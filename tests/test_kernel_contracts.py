@@ -1268,6 +1268,84 @@ class SupervisorTests(unittest.TestCase):
         self.assertEqual(stopped.cycles_completed, 1)
         self.assertEqual(stopped.stop_reason, "stop_requested")
 
+    def test_continuous_supervisor_stops_when_maker_closeout_is_incomplete(self):
+        from threading import Event
+        from types import SimpleNamespace
+        from unittest.mock import patch
+        from codexdevteam_kernel.supervisor import (SupervisorCycleResult,
+                                                    SupervisorLaunchCycleResult)
+
+        task = TaskRecord("TASK-CLOSEOUT", "Require verified closeout",
+                          TaskState.IN_PROGRESS, None, "high", ("src/closeout.py",))
+        self.store.set_supervisor_mode(
+            self.lease, "running", event_id="run-closeout-incomplete", now=102,
+        )
+        cycle = SupervisorLaunchCycleResult(
+            SupervisorCycleResult("closeout:1", "running", (task.task_id,), {}),
+            (SimpleNamespace(task_id=task.task_id),),
+        )
+        inputs = {
+            "capacity": {}, "task_prompts": {}, "invocation_ids": {},
+            "base_ref": "unused", "worktrees": object(), "adapters": {}, "now": 103,
+        }
+        def launch_with_unclosed_task(*_args, **_kwargs):
+            self.store.seed_task(
+                self.lease, task, event_id="seed-closeout-incomplete", now=103,
+            )
+            return cycle
+
+        with patch.object(self.supervisor, "run_dispatch_and_launch_cycle",
+                          side_effect=launch_with_unclosed_task) as launch:
+            result = self.supervisor.run_continuous(
+                self.lease, cycle_inputs=lambda _tick: inputs,
+                cycle_id_prefix=lambda _tick: "closeout",
+                stop_event=Event(), interval_seconds=0.001, max_cycles=3,
+            )
+
+        self.assertEqual(result.cycles_completed, 1)
+        self.assertEqual(result.stop_reason, "closeout_incomplete")
+        launch.assert_called_once()
+        event = next(item for item in self.store.events()
+                     if item["event_id"] == "continuous-closeout-incomplete:closeout:1")
+        self.assertEqual(event["payload"], {
+            "type": "supervisor.continuous_closeout_incomplete",
+            "cycle_id": "closeout:1",
+            "tasks": [{"task_id": task.task_id, "state": "in_progress"}],
+        })
+
+    def test_continuous_supervisor_refuses_restart_with_prior_active_tasks(self):
+        from threading import Event
+        from unittest.mock import patch
+
+        task = TaskRecord("TASK-RECOVERY", "Recover before dispatch",
+                          TaskState.NEEDS_REVIEW, "builder", "high",
+                          ("src/recovery.py",))
+        self.store.seed_task(self.lease, task, event_id="seed-prior-active", now=101)
+        self.store.set_supervisor_mode(
+            self.lease, "running", event_id="run-prior-active", now=102,
+        )
+        inputs = {
+            "capacity": {}, "task_prompts": {}, "invocation_ids": {},
+            "base_ref": "unused", "worktrees": object(), "adapters": {}, "now": 103,
+        }
+        with patch.object(self.supervisor, "run_dispatch_and_launch_cycle") as launch:
+            result = self.supervisor.run_continuous(
+                self.lease, cycle_inputs=lambda _tick: inputs,
+                cycle_id_prefix=lambda _tick: "recovery",
+                stop_event=Event(), interval_seconds=0.001, max_cycles=3,
+            )
+
+        self.assertEqual(result.cycles_completed, 0)
+        self.assertEqual(result.stop_reason, "active_tasks_require_recovery")
+        launch.assert_not_called()
+        event = next(item for item in self.store.events()
+                     if item["event_id"] == "continuous-preexisting-active:recovery:1")
+        self.assertEqual(event["payload"], {
+            "type": "supervisor.continuous_preexisting_active_tasks",
+            "cycle_id": "recovery:1",
+            "tasks": [{"task_id": task.task_id, "state": "needs_review"}],
+        })
+
     def test_continuous_runner_renews_head_lease_during_idle_interval(self):
         from threading import Event
         from unittest.mock import patch

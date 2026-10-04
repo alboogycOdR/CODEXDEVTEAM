@@ -356,6 +356,20 @@ loss or overlapping HEAD authority. Install and sidecar setup remain inactive.
 The live project pilot must be explicitly selected and authorized before any
 incumbent project is changed.
 
+- [x] Harden the continuous runner to refuse dispatch when pre-existing
+  `claimed` or `needs_review` tasks need restart recovery, and to journal
+  `supervisor.continuous_closeout_incomplete` when a cycle callback leaves a
+  maker unresolved. Focused regressions pass. A full Windows run found one
+  interaction with the existing in-progress recovery path; the guard was
+  narrowed and focused coverage now passes. The callback must still perform
+  gate/checker/review; an end-to-end Windows host remains open below.
+- [ ] Implement the Windows unattended host entrypoint and lifecycle around
+  the existing supervisor APIs: explicit activation, continuous lease-safe
+  operation, park/resume, clean stop/status, and restart recovery. It must run
+  the complete maker -> host commit -> exact-SHA gate -> independent checker ->
+  review path, apply a bounded rework policy, and persist or escalate every
+  cycle before starting another. A callback that omits closeout cannot count as
+  unattended operation. Keep the host parked until explicit activation.
 - [ ] Implement and verify a host-specific incumbent fence: disable automatic
   restart, stop the incumbent supervisor, reconcile all builder/checker/review/
   push/sync children, and produce tamper-evident evidence that the full write-

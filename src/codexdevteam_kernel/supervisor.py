@@ -499,7 +499,10 @@ class Supervisor:
         Runtime operations remain synchronous and bounded by their invocation
         timeout. Setting ``stop_event`` stops subsequent cycles; a running
         invocation finishes or reaches its configured timeout first. Callers
-        can also park through HEAD mode to prevent later claims.
+        can also park through HEAD mode to prevent later claims. After each
+        maker cycle, this loop requires every launched task to have a durable
+        done, blocked, or pending disposition. It records and stops on missing
+        gate/review closeout rather than dispatching another batch.
         """
         if not callable(cycle_inputs) or not callable(cycle_id_prefix):
             raise ValueError("cycle_inputs and cycle_id_prefix must be callable")
@@ -575,6 +578,21 @@ class Supervisor:
                 prefix = cycle_id_prefix(tick)
                 if not isinstance(prefix, str) or not prefix.strip():
                     raise ValueError("cycle_id_prefix must return non-empty text")
+                preexisting_active = [
+                    task for task in self.store.list_tasks()
+                    if task.state in {TaskState.CLAIMED, TaskState.NEEDS_REVIEW}
+                ]
+                if preexisting_active:
+                    unresolved = [{"task_id": task.task_id, "state": task.state.value}
+                                  for task in preexisting_active]
+                    self.store.record_event(
+                        lease, f"continuous-preexisting-active:{prefix}:{tick}",
+                        {"type": "supervisor.continuous_preexisting_active_tasks",
+                         "cycle_id": f"{prefix}:{tick}", "tasks": unresolved},
+                        now=inputs.get("now"),
+                    )
+                    reason = "active_tasks_require_recovery"
+                    break
                 result = self.run_dispatch_and_launch_cycle(
                     lease, cycle_id=f"{prefix}:{tick}", notifier=notifier,
                     notification_limit=notification_limit,
@@ -588,6 +606,25 @@ class Supervisor:
                     on_cycle(result)
                 if guard is not None:
                     guard.raise_if_lost()
+                unresolved = []
+                for maker in result.makers:
+                    task = self.store.get_task(maker.task_id)
+                    if task is None:
+                        unresolved.append({"task_id": maker.task_id, "state": "missing"})
+                    elif task.state not in {
+                            TaskState.DONE, TaskState.BLOCKED, TaskState.PENDING}:
+                        unresolved.append({"task_id": maker.task_id,
+                                           "state": task.state.value})
+                if unresolved:
+                    self.store.record_event(
+                        lease, f"continuous-closeout-incomplete:{prefix}:{tick}",
+                        {"type": "supervisor.continuous_closeout_incomplete",
+                         "cycle_id": result.dispatch.cycle_id,
+                         "tasks": unresolved},
+                        now=inputs.get("now"),
+                    )
+                    reason = "closeout_incomplete"
+                    break
                 if stop_event.is_set():
                     reason = "stop_requested"
                     break
