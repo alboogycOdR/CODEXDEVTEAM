@@ -361,8 +361,13 @@ incumbent project is changed.
   `supervisor.continuous_closeout_incomplete` when a cycle callback leaves a
   maker unresolved. Focused regressions pass. A full Windows run found one
   interaction with the existing in-progress recovery path; the guard was
-  narrowed and focused coverage now passes. The callback must still perform
-  gate/checker/review; an end-to-end Windows host remains open below.
+  narrowed and focused coverage now passes.
+- [x] Add `Supervisor.closeout_maker_with_checker()` to sequence a successful
+  host commit through the exact-SHA gate, CONTROL drain, independent checker,
+  and review ledger. A Windows integration regression reaches `DONE` only
+  after the checker approves. Failed gates do not launch a checker; failed or
+  changes-requested work remains open for recovery. This performs one review
+  attempt and does not automate bounded rework or continuous host lifecycle.
 - [x] On the user-selected `walkietalkie-keryx` frozen snapshot, validate a
   hash-bound handover map and stage inactive target state in a separate local
   database. The source PLAN parsed 114 tasks (109 historical, 5 open); four

@@ -2055,6 +2055,88 @@ class SupervisorTests(unittest.TestCase):
         self.assertEqual(self.store.get_task(task.task_id).state, TaskState.NEEDS_REVIEW)
 
     @unittest.skipUnless(os.name == "nt", "Windows Job Object host-commit integration")
+    def test_supervisor_closeout_sequences_host_commit_gate_and_independent_review(self):
+        from dataclasses import replace
+        from codexdevteam_kernel.host_commit import QuiescenceProof
+
+        project, base, task = self.prepare_claimed_maker("TASK-CLOSEOUT-PIPELINE")
+        worktrees = GitWorktreeManager(
+            project, Path(self.temp.name) / "managed-closeout-pipeline")
+
+        class CommittingMaker:
+            def invoke(inner_self, request):
+                result = self.FakeInvocationAdapter().invoke(request)
+                source = Path(request.working_directory) / "src" / "implemented.py"
+                source.parent.mkdir(parents=True, exist_ok=True)
+                source.write_text("answer = 42\n", encoding="utf-8")
+                return replace(result, quiescence_proof=QuiescenceProof(
+                    "windows", "windows_job_object", True, 0, "fixture"))
+
+        maker = self.supervisor.invoke_claimed_task(
+            self.lease, task.task_id, invocation_id="maker:closeout-pipeline",
+            prompt="implement", base_ref=base, worktrees=worktrees,
+            adapters={"codex": CommittingMaker()}, defer_control_drain=True, now=104)
+        self.assertEqual(maker.host_commit.status, "committed")
+
+        checker_registry = WorkerRegistry.from_dict({
+            "protocol_version": 1, "active": ["builder", "checker"],
+            "head_candidate": None,
+            "defined": {
+                "builder": {"role": "implementation", "capability_floor": "advanced",
+                            "runtime": "codex", "model": "builder-model",
+                            "control_mode": "strict", "strict_verification": {
+                                "status": "passed", "runtime": "codex",
+                                "model": "builder-model",
+                                "verified_at": "2026-10-01T00:00:00Z",
+                                "evidence_ref": "live-check",
+                                "verified_capabilities": [
+                                    "control_protocol", "host_commit_boundary",
+                                    "task_worktree_isolation", "post_run_territory_gate",
+                                ],
+                            }},
+                "checker": {"role": "reviewer", "capability_floor": "standard",
+                            "runtime": "independent-checker", "model": "review-model"},
+            },
+        })
+        supervisor = Supervisor(self.store, checker_registry, SupervisorPolicy(
+            require_strict=False, require_capacity_observation=False))
+        gate_runner = GateRunner(project, Path(self.temp.name) / "gate-closeout-pipeline")
+
+        class Checker:
+            def invoke(inner_self, request):
+                started_at = time.time()
+                verdict = json.dumps({
+                    "task_id": request.task_id, "sha": request.review_sha,
+                    "gate_fingerprint": request.gate_fingerprint,
+                    "decision": "approved", "rationale": "Exact-SHA review passed.",
+                    "evidence_refs": ["src/implemented.py"],
+                })
+                return InvocationResult(
+                    request.invocation_id, request.task_id, "checker",
+                    request.identity.unit_id, request.identity.runtime,
+                    request.identity.model, "succeeded", 0, 0.1,
+                    verdict, "", False, "e" * 64, started_at, started_at + 0.1,
+                    request.review_sha, request.gate_fingerprint,
+                )
+
+        closeout = supervisor.closeout_maker_with_checker(
+            self.lease, maker, gate_runner=gate_runner, base_ref=base,
+            commands={name: [sys.executable, "-c", "pass"]
+                      for name in ("build", "typecheck", "test_full")},
+            checker_id="checker", checker_prompt="Review the committed SHA.",
+            adapters={"independent-checker": Checker()},
+            gate_attempt_event_id="gate-closeout-pipeline",
+            checker_invocation_id="checker:closeout-pipeline",
+            review_event_id="review-closeout-pipeline", now=107,
+        )
+
+        self.assertEqual(closeout.gate.status, "passed")
+        self.assertIsNotNone(closeout.checker)
+        self.assertTrue(closeout.review_applied)
+        self.assertEqual(closeout.maker.host_commit.sha, closeout.gate.sha)
+        self.assertEqual(self.store.get_task(task.task_id).state, TaskState.DONE)
+
+    @unittest.skipUnless(os.name == "nt", "Windows Job Object host-commit integration")
     def test_host_gate_moves_task_to_review_without_maker_sha_report(self):
         from dataclasses import replace
         from codexdevteam_kernel.host_commit import QuiescenceProof

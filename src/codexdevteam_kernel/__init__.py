@@ -28,7 +28,7 @@ from .dispatch import (CapacityObservation, DispatchError, TaskClassPolicy, assi
                        eligible_workers, identity_snapshot, worker_readiness,
                        WorkerReadiness)
 from .supervisor import (ContinuousSupervisorResult, EscalationNotifier,
-                         NotificationCycleResult, Supervisor,
+                         MakerCloseoutResult, NotificationCycleResult, Supervisor,
                          SupervisorCycleResult, SupervisorLaunchCycleResult,
                          SupervisorPolicy, TaskInvocationCycleResult,
                          TaskCheckerCycleResult)
@@ -115,6 +115,7 @@ __all__ = [
     "SupervisorCycleResult",
     "SupervisorLaunchCycleResult",
     "NotificationCycleResult",
+    "MakerCloseoutResult",
     "EscalationNotifier",
     "TaskInvocationCycleResult",
     "TaskCheckerCycleResult",

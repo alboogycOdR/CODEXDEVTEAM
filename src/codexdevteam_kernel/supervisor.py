@@ -27,6 +27,7 @@ from .process_identity import ProcessIdentity, observe_process_identity
 from .registry import WorkerRegistry
 from .runtime import InvocationRequest, InvocationResult, request_for_worker
 from .fast_tier import FastTierRunner
+from .gate import GateRunner
 from .lease_guard import HeadLeaseGuard
 from .review import parse_review_verdict
 from .state import HeadLease, LeaseError, StateStore
@@ -108,6 +109,16 @@ class TaskCheckerCycleResult:
     task_id: str
     checker_id: str
     invocation: InvocationResult
+
+
+@dataclass(frozen=True, slots=True)
+class MakerCloseoutResult:
+    """Durable maker, gate, and independent review evidence for one task."""
+
+    maker: TaskInvocationCycleResult
+    gate: GateResult | None
+    checker: TaskCheckerCycleResult | None
+    review_applied: bool
 
 
 @dataclass(frozen=True, slots=True)
@@ -746,6 +757,79 @@ class Supervisor:
             )
         return replace(cycle, control_applied=control["applied"],
                        control_rejected=control["rejected"])
+
+    def closeout_maker_with_checker(
+            self, lease: HeadLease, cycle: TaskInvocationCycleResult, *,
+            gate_runner: GateRunner, base_ref: str,
+            commands: Mapping[str, tuple[str, ...] | list[str] | None],
+            checker_id: str, checker_prompt: str,
+            adapters: Mapping[str, InvocationAdapter],
+            gate_attempt_event_id: str, checker_invocation_id: str,
+            review_event_id: str, allowed_environment: tuple[str, ...] = (),
+            gate_timeout_seconds: float = 1800.0,
+            checker_timeout_seconds: float = 900.0,
+            memory: EvidenceMemory | None = None,
+            project_root: str | Path | None = None,
+            now: float | None = None) -> MakerCloseoutResult:
+        """Run the exact-SHA gate and independent checker/review in order.
+
+        A refused or missing host commit is never sent to the gate. Failed gates
+        and checker/review failures remain open for the continuous runner's
+        closeout guard to stop and escalate. This method performs one review
+        attempt; it does not silently rework or redispatch the maker.
+        """
+        if not isinstance(cycle, TaskInvocationCycleResult):
+            raise ValueError("maker cycle is required")
+        if not isinstance(gate_runner, GateRunner):
+            raise ValueError("gate_runner must be a configured GateRunner")
+        if not isinstance(base_ref, str) or not base_ref.strip():
+            raise ValueError("base_ref is required")
+        for label, value in (("gate_attempt_event_id", gate_attempt_event_id),
+                             ("checker_invocation_id", checker_invocation_id),
+                             ("review_event_id", review_event_id)):
+            if not isinstance(value, str) or not value.strip():
+                raise ValueError(f"{label} is required")
+        task = self.store.get_task(cycle.task_id)
+        if task is None:
+            raise ValueError("maker task is missing from authoritative state")
+        if (cycle.host_commit is None or cycle.host_commit.status != "committed"
+                or not cycle.host_commit.sha):
+            if task.state is TaskState.BLOCKED:
+                return MakerCloseoutResult(cycle, None, None, False)
+            raise ValueError("gate closeout requires a successful host commit")
+
+        active_tasks = tuple(self.store.list_tasks())
+        open_task_ids = tuple(sorted(
+            item.task_id for item in active_tasks if item.state is not TaskState.DONE
+        ))
+        gate = gate_runner.run(
+            task, cycle.worktree_path,
+            expected_sha=cycle.host_commit.sha, base_ref=base_ref,
+            commands=commands, allowed_environment=allowed_environment,
+            timeout_seconds=gate_timeout_seconds, open_task_ids=open_task_ids,
+            active_tasks=active_tasks,
+        )
+        finalized = self.finalize_maker_gate(
+            lease, cycle, gate, attempt_event_id=gate_attempt_event_id,
+            project_root=project_root, now=now,
+        )
+        if gate.status != "passed":
+            return MakerCloseoutResult(finalized, gate, None, False)
+        current = self.store.get_task(cycle.task_id)
+        if current is None or current.state is not TaskState.NEEDS_REVIEW:
+            return MakerCloseoutResult(finalized, gate, None, False)
+        checker = self.invoke_checker(
+            lease, cycle.task_id, checker_id, gate=gate,
+            prompt=checker_prompt, working_directory=cycle.worktree_path,
+            adapters=adapters, invocation_id=checker_invocation_id,
+            timeout_seconds=checker_timeout_seconds,
+            allowed_environment=allowed_environment, memory_injection=None, now=now,
+        )
+        applied = self.apply_checker_output(
+            lease, checker, gate=gate, event_id=review_event_id, memory=memory,
+            project_root=project_root, now=now,
+        )
+        return MakerCloseoutResult(finalized, gate, checker, applied)
 
     def invoke_checker(self, lease: HeadLease, task_id: str, checker_id: str, *,
                        gate: GateResult, prompt: str, working_directory: str | Path,
