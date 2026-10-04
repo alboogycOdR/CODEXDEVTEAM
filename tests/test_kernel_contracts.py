@@ -1010,6 +1010,45 @@ class SupervisorTests(unittest.TestCase):
                 self.lease, task.task_id, event_id="requeue-without-review", now=103)
         self.assertEqual(self.store.get_task(task.task_id).state, TaskState.IN_PROGRESS)
 
+    def test_rework_limit_records_exhaustion_without_requeueing_maker(self):
+        task = TaskRecord("TASK-REWORK-LIMIT", "Bound reviewed revisions",
+                          TaskState.IN_PROGRESS, "builder", "medium", ("src/**",),
+                          maker_identity={"unit_id": "builder", "runtime": "codex",
+                                          "model": "builder-model"})
+        self.store.seed_task(self.lease, task, event_id="seed-rework-limit", now=101)
+        self.store.set_supervisor_mode(self.lease, "running",
+                                       event_id="run-rework-limit", now=102)
+        review_payload = {"type": "task.reviewed", "task_id": task.task_id,
+                          "decision": "changes_requested",
+                          "maker_identity": task.maker_identity}
+        self.store.record_event(self.lease, "review-rework-limit-1",
+                                review_payload, now=103)
+        self.store.record_event(self.lease, "review-rework-limit-2",
+                                review_payload, now=104)
+
+        result = self.supervisor.requeue_changes_requested_task(
+            self.lease, task.task_id, event_id="rework-limit-reached",
+            max_rework_attempts=1, now=105)
+
+        self.assertFalse(result)
+        self.assertEqual(self.store.get_task(task.task_id).state, TaskState.IN_PROGRESS)
+        event = next(item for item in self.store.events()
+                     if item["event_id"] == "rework-limit-reached")
+        self.assertEqual(event["payload"], {
+            "type": "supervisor.rework_limit_reached",
+            "task_id": task.task_id,
+            "max_rework_attempts": 1,
+            "changes_requested_count": 2,
+            "latest_review_event_id": "review-rework-limit-2",
+            "task_state": "in_progress",
+        })
+        self.assertFalse(any(
+            item["payload"].get("type") == "task.transitioned"
+            and item["payload"].get("task_id") == task.task_id
+            and item["payload"].get("to") == "claimed"
+            for item in self.store.events()
+        ))
+
     def test_staged_historical_dependency_allows_dispatch_without_faking_done_task(self):
         task = TaskRecord("TASK-AFTER-HANDOVER", "Continue translated work",
                           TaskState.PENDING, None, "medium", ("src/after.py",),

@@ -371,6 +371,11 @@ incumbent project is changed.
 - [x] Make `handover-stage` release its temporary target HEAD lease on success
   and failure. Windows regression verifies the lease is expired when the CLI
   returns; staged task state remains parked and inactive.
+- [x] Bound checker-requested rework in `requeue_changes_requested_task()`.
+  The configurable cap defaults to one retry; exceeding it journals
+  `supervisor.rework_limit_reached` and refuses another claim. Regression
+  confirms the task stays open for human recovery. The Windows host still needs
+  to drive the bounded maker/review loop around this policy.
 - [x] On the user-selected `walkietalkie-keryx` frozen snapshot, validate a
   hash-bound handover map and stage inactive target state in a separate local
   database. The source PLAN parsed 114 tasks (109 historical, 5 open); four

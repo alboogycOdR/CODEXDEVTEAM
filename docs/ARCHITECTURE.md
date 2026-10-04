@@ -216,10 +216,12 @@ from dispatching a later batch while the prior maker is still awaiting gate or
 checker review. The callback still has to perform the actual gate/checker/review
 work; `closeout_maker_with_checker()` provides that ordered single-attempt
 path for committed makers and leaves failed or changes-requested work open for
-recovery. The runner does not call the helper automatically, apply bounded
-rework, or provide a daemon/process lifecycle manager. Before dispatch, it
-also stops for pre-existing `claimed` or `needs_review` tasks that require
-explicit restart recovery;
+recovery. `requeue_changes_requested_task()` enforces a configurable rework
+cap (one retry by default), journals exhaustion, and refuses another claim
+once the cap is reached. The runner does not call these helpers automatically,
+drive the retry loop, or provide a daemon/process lifecycle manager. Before
+dispatch, it also stops for pre-existing `claimed` or `needs_review` tasks that
+require explicit restart recovery;
 `in_progress` tasks continue through the existing invocation-liveness and
 stagnation path. Platform process identity records
 now fingerprint Windows creation time and Linux boot ID plus process start

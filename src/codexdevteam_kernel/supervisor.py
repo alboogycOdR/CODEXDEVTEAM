@@ -998,19 +998,43 @@ class Supervisor:
         return applied
 
     def requeue_changes_requested_task(self, lease: HeadLease, task_id: str, *,
-                                       event_id: str, now: float | None = None) -> bool:
-        """Return a reviewed task to its same maker, gated by the latest review."""
+                                       event_id: str, max_rework_attempts: int = 1,
+                                       now: float | None = None) -> bool:
+        """Requeue only within a bounded number of checker-requested revisions.
+
+        Once the task exceeds the configured cap, it remains open and in
+        progress, a durable exhaustion event is recorded, and no new maker
+        claim is created. Human recovery is then required.
+        """
         if self.store.get_supervisor_mode()["mode"] != "running":
             raise ValueError("task requeue requires supervisor running mode")
+        if (isinstance(max_rework_attempts, bool)
+                or not isinstance(max_rework_attempts, int)
+                or max_rework_attempts < 0):
+            raise ValueError("max_rework_attempts must be a non-negative integer")
         task = self.store.get_task(task_id)
         if task is None or task.state is not TaskState.IN_PROGRESS or not task.assigned_worker:
             raise ValueError("only an in-progress assigned task can be requeued")
-        reviews = [event["payload"] for event in self.store.events()
-                   if event["payload"].get("type") == "task.reviewed"
-                   and event["payload"].get("task_id") == task_id]
+        review_events = [event for event in self.store.events()
+                         if event["payload"].get("type") == "task.reviewed"
+                         and event["payload"].get("task_id") == task_id]
+        reviews = [event["payload"] for event in review_events]
         if (not reviews or reviews[-1].get("decision") != "changes_requested"
                 or reviews[-1].get("maker_identity") != task.maker_identity):
             raise ValueError("requeue requires the latest task review to request changes")
+        rework_count = sum(review.get("decision") == "changes_requested" for review in reviews)
+        if rework_count > max_rework_attempts:
+            latest_review_event_id = review_events[-1]["event_id"]
+            self.store.record_event(
+                lease, event_id,
+                {"type": "supervisor.rework_limit_reached", "task_id": task_id,
+                 "max_rework_attempts": max_rework_attempts,
+                 "changes_requested_count": rework_count,
+                 "latest_review_event_id": latest_review_event_id,
+                 "task_state": task.state.value},
+                now=now,
+            )
+            return False
         if not task.maker_identity or task.maker_identity.get("unit_id") != task.assigned_worker:
             raise ValueError("requeue requires the original maker identity snapshot")
         if any(other.task_id != task_id and other.assigned_worker == task.assigned_worker
