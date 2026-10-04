@@ -368,6 +368,9 @@ incumbent project is changed.
   after the checker approves. Failed gates do not launch a checker; failed or
   changes-requested work remains open for recovery. This performs one review
   attempt and does not automate bounded rework or continuous host lifecycle.
+- [x] Make `handover-stage` release its temporary target HEAD lease on success
+  and failure. Windows regression verifies the lease is expired when the CLI
+  returns; staged task state remains parked and inactive.
 - [x] On the user-selected `walkietalkie-keryx` frozen snapshot, validate a
   hash-bound handover map and stage inactive target state in a separate local
   database. The source PLAN parsed 114 tasks (109 historical, 5 open); four

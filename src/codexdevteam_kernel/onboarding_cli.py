@@ -144,16 +144,20 @@ def main() -> int:
             event_id = args.event_id or (
                 "handover:" + preview.source_plan_sha256[:20] + ":" + preview.mapping_sha256[:20]
             )
-            staged = stage_handover(
-                source_bytes, mapping, registry=registry, store=store, lease=lease,
-                event_id=event_id,
-            )
+            try:
+                staged = stage_handover(
+                    source_bytes, mapping, registry=registry, store=store, lease=lease,
+                    event_id=event_id,
+                )
+            finally:
+                store.release_head(lease)
             print(json.dumps({
                 "event_id": event_id,
                 "source_plan_sha256": staged.source_plan_sha256,
                 "mapping_sha256": staged.mapping_sha256,
                 "staged_task_ids": [task.task_id for task in staged.tasks],
                 "historical_task_ids": list(staged.historical_task_ids),
+                "target_lease_released": True,
                 "source_process_fenced": False,
                 "activation_authorized": False,
             }, indent=2, sort_keys=True))

@@ -2677,8 +2677,16 @@ class HandoverTranslationTests(unittest.TestCase):
                 self.assertEqual(main(), 0)
             report = json.loads(output.getvalue())
             self.assertEqual(report["staged_task_ids"], ["TASK-STAGE-CLI"])
+            self.assertTrue(report["target_lease_released"])
             self.assertFalse(report["source_process_fenced"])
             self.assertFalse(report["activation_authorized"])
+            db = sqlite3.connect(state_path)
+            try:
+                lease_expiry = db.execute(
+                    "SELECT expires_at FROM head_lease WHERE singleton=1").fetchone()[0]
+            finally:
+                db.close()
+            self.assertLessEqual(lease_expiry, time.time())
             self.assertEqual(plan_path.read_text(encoding="utf-8"), source)
             marker = json.loads((project / ".codexdevteam" / "installation.json").read_text())
             self.assertFalse(marker["activated"])
@@ -2687,6 +2695,24 @@ class HandoverTranslationTests(unittest.TestCase):
                              ["TASK-STAGE-CLI"])
             self.assertEqual(StateStore(state_path).handover_context_fields()[0]["field_value"],
                              "retain this operator-approved context")
+
+            failed_state_path = Path(temp) / "failed-target-state.sqlite"
+            failed_output = io.StringIO()
+            with patch("codexdevteam_kernel.onboarding_cli.stage_handover",
+                       side_effect=ValueError("fixture stage failure")), \
+                    patch("sys.argv", [
+                        "codexdevteam", "handover-stage", "--project", str(project),
+                        "--mapping", str(mapping_path), "--registry", str(registry_path),
+                        "--state-db", str(failed_state_path),
+                    ]), contextlib.redirect_stderr(failed_output):
+                self.assertEqual(main(), 2)
+            failed_db = sqlite3.connect(failed_state_path)
+            try:
+                failed_lease_expiry = failed_db.execute(
+                    "SELECT expires_at FROM head_lease WHERE singleton=1").fetchone()[0]
+            finally:
+                failed_db.close()
+            self.assertLessEqual(failed_lease_expiry, time.time())
 
 
 class CompatibilityGateTests(unittest.TestCase):
