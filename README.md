@@ -4,26 +4,25 @@ A GPT-led development-team operating system derived from the proven DEVDEPARTMEN
 
 ## Status
 
-**v0.1.0 released 2026-10-04.** This is the Windows-first fresh-project
-core; brief-to-plan unattended operation remains in progress. The supervisor
-remains parked until an operator explicitly activates it. **v0.2.0 is the
-current release candidate**, with final hosted CI and release publication still
-open; see [v0.2 release notes](docs/RELEASE_NOTES_v0.2.md). v0.2 targets standalone
-unattended development of a new project from a brief. DEVDEPARTMENT remains the
-behavioral reference; taking control of an existing DEVDEPARTMENT project and
-returning it are outside the v0.2 release scope.
+**v0.1.0 released 2026-10-04.** This is the Windows-first fresh-project core.
+**v0.2.0 is the current release candidate** for standalone unattended
+development of a new project from a brief. The candidate's brief-to-plan,
+supervised workflow, and hosted CI have passed; release publication remains
+open. See [v0.2 release notes](docs/RELEASE_NOTES_v0.2.md). The supervisor
+remains parked until an operator explicitly activates it. DEVDEPARTMENT remains
+the behavioral reference; taking control of an existing DEVDEPARTMENT project
+and returning it are outside the v0.2 release scope.
 
 The initial source package lives under `src/codexdevteam_kernel/`. It contains
 provider-neutral coordination policy, a bounded Codex runtime adapter, a
 host-owned commit boundary, and a parked-by-default, lease-fenced dispatch
 cycle. Supervised maker commits are currently supported on Windows; Ubuntu is
-CI coverage only, and maker commits fail closed without a verified Windows Job
-Object proof. Hosted CI run
-[37674230702](https://github.com/alboogycOdR/CODEXDEVTEAM/actions/runs/37674230702)
-passed on Ubuntu and Windows for Python 3.11 and 3.12 for commit
-`798c4ef7a07ad42d3f145030dfcb50927992d131`; the current v0.2.0 candidate still
-needs hosted CI. The matrix builds and installs the package, smoke-checks its
-installed CLI entry points, imports the package, and runs the contract suite.
+CI compatibility coverage only, and maker commits fail closed without a
+verified Windows Job Object proof. The v0.2.0 candidate passed hosted CI on
+Windows and Ubuntu compatibility jobs for Python 3.11 and 3.12 at
+[run 37691384320](https://github.com/alboogycOdR/CODEXDEVTEAM/actions/runs/37691384320).
+The matrix builds and installs the package, smoke-checks its installed CLI
+entry points, imports the package, and runs the contract suite.
 
 ## Lineage
 
