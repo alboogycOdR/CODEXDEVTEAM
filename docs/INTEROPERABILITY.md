@@ -2,7 +2,11 @@
 
 ## Goal
 
-Allow CODEXDEVTEAM to work with projects that already use DEVDEPARTMENT without replacing DEVDEPARTMENT or creating two simultaneous control planes.
+Document future interoperability with projects that already use DEVDEPARTMENT
+without replacing DEVDEPARTMENT or creating two simultaneous control planes.
+This is not part of the standalone v0.2 acceptance scope; v0.2 operates projects
+initialized under CODEXDEVTEAM from their start. DEVDEPARTMENT remains the
+behavioral reference for supervisor and dispatch policy.
 
 ## Shared/portable project concepts
 
@@ -42,9 +46,10 @@ The shared project carries durable HEAD metadata (final schema to be implemented
 
 Activation requires a clean/understood incumbent state. A live incompatible lease blocks activation.
 
-## Handover
+## Future handover (deferred beyond v0.2)
 
-DEVDEPARTMENT -> CODEXDEVTEAM and the reverse must:
+When cross-system transfer is scheduled, DEVDEPARTMENT -> CODEXDEVTEAM and the
+reverse must:
 1. validate project protocol version;
 2. inspect inflight tasks and worktrees;
 3. park/stop incumbent orchestration;

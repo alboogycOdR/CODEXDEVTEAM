@@ -5,9 +5,11 @@ A GPT-led development-team operating system derived from the proven DEVDEPARTMEN
 ## Status
 
 **v0.1.0 released 2026-10-04.** This is the Windows-first fresh-project
-core; it is not yet at DEVDEPARTMENT parity. The unattended supervisor remains
-parked until an operator explicitly activates it. v0.2 is focused on verified
-DEVDEPARTMENT handover and return, and representative unattended operation.
+core; brief-to-plan unattended operation remains in progress. The supervisor remains
+parked until an operator explicitly activates it. v0.2 targets standalone
+unattended development of a new project from a brief. DEVDEPARTMENT remains the
+behavioral reference; taking control of an existing DEVDEPARTMENT project and
+returning it are outside the v0.2 release scope.
 
 The initial source package lives under `src/codexdevteam_kernel/`. It contains
 provider-neutral coordination policy, a bounded Codex runtime adapter, a
@@ -42,7 +44,9 @@ Default topology:
 - **Optional builders:** Claude Sonnet, Grok, additional Codex identities, and future runtimes.
 - **Mechanical verification:** deterministic gates establish facts before expensive model judgment.
 
-Concrete model IDs are configuration, not architecture.
+Concrete model IDs are configuration, not architecture. The orchestrator may
+request roles and capability floors; dispatch selects only among configured,
+strict-verified workers that satisfy those requirements and current capacity.
 
 ## Install into a project
 
@@ -68,7 +72,7 @@ and ambiguous dual installations require an explicit upgrade or handover path.
 4. Maker != checker unless a human explicitly overrides.
 5. Mechanical facts are established mechanically before model judgment.
 6. Strict CONTROL-style single-writer orchestration is preferred for verified builders.
-7. Switching HEADs is an explicit validated handover; onboarding never silently takes control.
+7. Initial HEAD activation is explicit; onboarding never silently takes control. Cross-system handover remains a separately gated future capability.
 8. Safety/autonomy changes use an ask-and-verify posture.
 9. Significant model sessions are bounded and ledgered where runtime data permits.
 10. Existing DEVDEPARTMENT projects are adapted, never overwritten.

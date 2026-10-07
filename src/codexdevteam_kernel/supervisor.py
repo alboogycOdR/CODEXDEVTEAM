@@ -24,6 +24,7 @@ from .host_commit import (CommitLimits, HostCommitResult, QuiescenceProof,
                           quarantine_out_of_scope_changes, validate_owned_retry_worktree)
 from .memory import EvidenceMemory, FactInjection, render_fact_injection
 from .process_identity import ProcessIdentity, observe_process_identity
+from .protocol import TaskRecord
 from .registry import WorkerRegistry
 from .runtime import InvocationRequest, InvocationResult, request_for_worker
 from .fast_tier import FastTierRunner
@@ -350,6 +351,9 @@ class Supervisor:
                 raise DispatchError("task has a class but supervisor has no task-class policy")
             class_floor = (self.policy.task_class_policy.floor_for(task.task_class)
                            if self.policy.task_class_policy is not None else None)
+            task_role = (self.policy.task_class_policy.role_for(
+                task.task_class, fallback=self.policy.role)
+                if self.policy.task_class_policy is not None else self.policy.role)
             floors = [floor for floor in
                       (self.policy.required_capability_floor, class_floor) if floor is not None]
             task_floor = floors[0] if floors else None
@@ -361,7 +365,7 @@ class Supervisor:
                 task_floor = max(floors, key=order.index)
             workers = eligible_workers(
                 self.registry, machine_id=self.policy.machine_id,
-                require_strict=self.policy.require_strict, role=self.policy.role,
+                require_strict=self.policy.require_strict, role=task_role,
                 capacity=capacity_snapshot, now=current,
                 required_capability_floor=task_floor,
             )
@@ -762,7 +766,8 @@ class Supervisor:
             self, lease: HeadLease, cycle: TaskInvocationCycleResult, *,
             gate_runner: GateRunner, base_ref: str,
             commands: Mapping[str, tuple[str, ...] | list[str] | None],
-            checker_id: str, checker_prompt: str,
+            checker_id: str,
+            checker_prompt: str | Callable[[TaskRecord, GateResult], str],
             adapters: Mapping[str, InvocationAdapter],
             gate_attempt_event_id: str, checker_invocation_id: str,
             review_event_id: str, allowed_environment: tuple[str, ...] = (),
@@ -784,6 +789,8 @@ class Supervisor:
             raise ValueError("gate_runner must be a configured GateRunner")
         if not isinstance(base_ref, str) or not base_ref.strip():
             raise ValueError("base_ref is required")
+        if not isinstance(checker_prompt, str) and not callable(checker_prompt):
+            raise ValueError("checker_prompt must be text or a gate-bound prompt builder")
         for label, value in (("gate_attempt_event_id", gate_attempt_event_id),
                              ("checker_invocation_id", checker_invocation_id),
                              ("review_event_id", review_event_id)):
@@ -818,9 +825,13 @@ class Supervisor:
         current = self.store.get_task(cycle.task_id)
         if current is None or current.state is not TaskState.NEEDS_REVIEW:
             return MakerCloseoutResult(finalized, gate, None, False)
+        effective_checker_prompt = (checker_prompt(current, gate)
+                                    if callable(checker_prompt) else checker_prompt)
+        if not isinstance(effective_checker_prompt, str) or not effective_checker_prompt.strip():
+            raise ValueError("gate-bound checker prompt must return non-empty text")
         checker = self.invoke_checker(
             lease, cycle.task_id, checker_id, gate=gate,
-            prompt=checker_prompt, working_directory=cycle.worktree_path,
+            prompt=effective_checker_prompt, working_directory=cycle.worktree_path,
             adapters=adapters, invocation_id=checker_invocation_id,
             timeout_seconds=checker_timeout_seconds,
             allowed_environment=allowed_environment, memory_injection=None, now=now,

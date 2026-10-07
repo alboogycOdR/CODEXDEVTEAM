@@ -41,11 +41,40 @@ def default_framework_files() -> dict[str, str]:
         "activated": False,
         "devdepartment_policy": "preserve-and-require-explicit-handover",
     }
+    supervisor = {
+        "protocol_version": 1,
+        "activation_state": "parked",
+        "state_db": ".codexdevteam/state/state.sqlite",
+        "registry": ".codexdevteam/framework/registry.template.json",
+        "verification_config": ".codexdevteam/framework/verification.json",
+        "capacity_snapshot": ".codexdevteam/control/capacity.json",
+        "worktree_root": "../{project_name}-codexdevteam-worktrees",
+        "control_root": ".codexdevteam/control",
+        "logs_root": ".codexdevteam/logs",
+        "system_id": "codexdevteam",
+        "instance_id": "configure-host-instance",
+        "maker_role": "implementation",
+        "checker_role": "reviewer",
+        "poll_interval_seconds": 30,
+        "lease_ttl_seconds": 90,
+        "max_cycles_per_process": 100,
+        "max_rework_attempts": 1,
+        "require_strict": True,
+        "require_capacity_observation": True,
+    }
+    capacity = {
+        "protocol_version": 1,
+        "observed_at": 0,
+        "stale_after_seconds": 120,
+        "workers": {},
+    }
     return {
         ".codexdevteam/framework/registry.template.json": _json(registry),
         ".codexdevteam/framework/verification.json": _json(verification),
         ".codexdevteam/framework/task-routing.json": _json(task_routing),
         ".codexdevteam/framework/interoperability.json": _json(interoperability),
+        ".codexdevteam/framework/supervisor.json": _json(supervisor),
+        ".codexdevteam/framework/capacity.template.json": _json(capacity),
         ".codexdevteam/framework/usage-rates.template.json": "[]\n",
         ".codexdevteam/framework/README.md": (
             "# CODEXDEVTEAM project setup\n\n"

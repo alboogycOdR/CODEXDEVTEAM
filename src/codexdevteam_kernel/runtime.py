@@ -241,10 +241,10 @@ class CodexExecAdapter:
         runtime_temp = tempfile.TemporaryDirectory(prefix="codexdevteam-invocation-")
         isolated_temp = str(Path(runtime_temp.name).resolve(strict=True))
         env.update({"TEMP": isolated_temp, "TMP": isolated_temp, "TMPDIR": isolated_temp})
-        checker_message_path = None
-        if request.purpose == "checker":
-            checker_message_path = Path(isolated_temp) / "last-message.txt"
-            argv[-1:-1] = ["--output-last-message", str(checker_message_path)]
+        final_message_path = None
+        if request.purpose in {"checker", "head"}:
+            final_message_path = Path(isolated_temp) / "last-message.txt"
+            argv[-1:-1] = ["--output-last-message", str(final_message_path)]
         started_at = time.time()
         started = time.monotonic()
         status, exit_code, stdout, stderr = "failed", None, "", ""
@@ -292,14 +292,15 @@ class CodexExecAdapter:
             except OSError as exc:
                 status = "launch_failed"
                 stderr = str(exc)
-            if request.purpose == "checker" and status == "succeeded":
+            if request.purpose in {"checker", "head"} and status == "succeeded":
                 try:
-                    stdout = checker_message_path.read_text(encoding="utf-8")
+                    stdout = final_message_path.read_text(encoding="utf-8")
                 except OSError:
                     stdout = ""
                 if not stdout.strip():
                     status, exit_code = "failed", 1
-                    stderr = (stderr + "\nCodex did not produce its required final checker message.").strip()
+                    message_kind = "final checker message" if request.purpose == "checker" else "final planner message"
+                    stderr = (stderr + f"\nCodex did not produce its required {message_kind}.").strip()
         finally:
             runtime_temp.cleanup()
         duration = time.monotonic() - started

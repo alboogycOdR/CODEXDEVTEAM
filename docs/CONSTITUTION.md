@@ -16,13 +16,15 @@ Builders implement assigned work. They do not silently widen territory, change c
 
 A project may contain compatibility support for multiple development operating systems, but exactly one HEAD lease may be active.
 
-A HEAD activation must:
-1. identify the current HEAD;
-2. verify project state and inflight work;
-3. stop or park the incumbent supervisor;
-4. acquire the project HEAD lease;
-5. preserve compatible task/worktree state;
-6. record the handover.
+Initial activation in a new CODEXDEVTEAM project must verify that no active
+CODEXDEVTEAM HEAD lease exists, acquire the project lease, and record the
+activation. Onboarding alone never activates it.
+
+Switching an already-owned project to another development system is a separate
+future handover operation. It must identify and fence the current HEAD, verify
+project state and inflight work, preserve compatible task/worktree state,
+acquire the next lease, and record the transfer. Cross-system handover is
+outside the standalone v0.2 release objective.
 
 Loss, expiry or ambiguity of the lease fails closed for orchestration writes. Builders already executing safe owned work may finish according to policy, but no competing HEAD may claim authority.
 
