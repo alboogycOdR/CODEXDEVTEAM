@@ -95,7 +95,10 @@ and propagate lease loss to the Codex adapter, which cancels and reaps the
 runtime process tree; on Windows this uses a Job Object. Supervised `codex exec`
 sets `approval_policy="never"` through its configuration override, so
 approval-dependent actions fail promptly while the configured sandbox remains
-enabled. Invocation timeouts use the same tree cleanup. The post-run gate
+enabled. On Windows, the adapter launches Codex through native PowerShell with
+literal-quoted arguments; the prompt remains on stdin and the PowerShell/Codex
+process tree stays in the same Job Object. Invocation timeouts use the same
+tree cleanup. The post-run gate
 requires a snapshot of all authoritative tasks and includes active territory
 owners in its fingerprint, rejecting changes that overlap another claimed,
 in-progress, or needs-review task. It applies the same protected-path/grant

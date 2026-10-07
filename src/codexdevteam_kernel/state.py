@@ -2394,7 +2394,10 @@ class StateStore:
                 )
             db.commit()
             if projection is not None:
-                self._apply_plan_projection(event_id, projection)
+                try:
+                    self.apply_pending_plan_projections(lease, now=now)
+                except Exception as exc:
+                    raise PlanProjectionPending(event_id, str(exc)) from exc
             return True
         except Exception:
             db.rollback()

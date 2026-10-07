@@ -266,6 +266,14 @@ class RuntimeAdapterTests(unittest.TestCase):
         process.communicate.return_value = (stdout, stderr)
         return process
 
+    @staticmethod
+    def output_message_path(argv):
+        if "--output-last-message" in argv:
+            return Path(argv[argv.index("--output-last-message") + 1])
+        marker = "'--output-last-message' '"
+        command = argv[-1]
+        return Path(command.split(marker, 1)[1].split("'", 1)[0])
+
     def request(self, **overrides):
         values = {"invocation_id": "invoke-1", "task_id": "TASK-90", "purpose": "checker",
                   "identity": WorkerIdentity("reviewer", "reviewer", "high", "codex", "configured-model"),
@@ -421,7 +429,7 @@ class RuntimeAdapterTests(unittest.TestCase):
         process = self.process(stdout='{"type":"turn.completed"}')
 
         def launch(argv, **kwargs):
-            output_path = Path(argv[argv.index("--output-last-message") + 1])
+            output_path = self.output_message_path(argv)
             output_path.write_text("answer longer than limit", encoding="utf-8")
             return process
 
@@ -429,12 +437,19 @@ class RuntimeAdapterTests(unittest.TestCase):
         result = CodexExecAdapter("codex-test").invoke(self.request())
         argv = run.call_args.args[0]
         kwargs = run.call_args.kwargs
-        self.assertIn("configured-model", argv)
-        self.assertIn("--output-last-message", argv)
-        self.assertIn('approval_policy="never"', argv)
-        self.assertIn('model_reasoning_effort="high"', argv)
-        self.assertIn("read-only", argv)
-        self.assertEqual(argv[-1], "-")
+        command = argv[-1] if os.name == "nt" else " ".join(argv)
+        self.assertIn("configured-model", command)
+        self.assertIn("--output-last-message", command)
+        self.assertIn('approval_policy="never"', command)
+        self.assertIn('model_reasoning_effort="high"', command)
+        self.assertIn("read-only", command)
+        if os.name == "nt":
+            self.assertIn("'-'", command)
+            self.assertIn("-NonInteractive", argv)
+            self.assertTrue(command.startswith("& 'codex-test'"))
+            self.assertTrue(command.endswith("; exit $LASTEXITCODE"))
+        else:
+            self.assertEqual(argv[-1], "-")
         self.assertTrue(process.communicate.call_args.kwargs["input"].startswith(
             "Review the task result"))
         self.assertIn("CODEXDEVTEAM REVIEW BINDING",
@@ -444,6 +459,28 @@ class RuntimeAdapterTests(unittest.TestCase):
         self.assertEqual(len(result.stdout) + len(result.stderr), 12)
         self.assertEqual(result.status, "succeeded")
 
+    @patch.dict(os.environ, {"CODEX_CLI_PATH": r"C:\Codex\codex.exe"})
+    @patch("codexdevteam_kernel.runtime.subprocess.Popen")
+    def test_codex_adapter_preserves_cli_path_for_nested_tool_runtime(self, run):
+        run.return_value = self.process(stdout='{"type":"turn.completed"}')
+
+        CodexExecAdapter("codex-test").invoke(self.request())
+
+        self.assertEqual(run.call_args.kwargs["env"]["CODEX_CLI_PATH"],
+                         r"C:\Codex\codex.exe")
+
+    def test_powershell_launch_quotes_single_quotes_as_literal_arguments(self):
+        from codexdevteam_kernel.runtime import _powershell_launch_argv
+
+        with patch("codexdevteam_kernel.runtime.shutil.which",
+                   side_effect=lambda name: r"C:\Program Files\PowerShell\7\pwsh.exe"
+                   if name == "pwsh" else None):
+            argv = _powershell_launch_argv(["codex", "exec", "C:\\pilot's path", "-"])
+
+        self.assertEqual(argv[0], r"C:\Program Files\PowerShell\7\pwsh.exe")
+        self.assertIn("'C:\\pilot''s path'", argv[-1])
+        self.assertIn("'-'", argv[-1])
+
     @patch("codexdevteam_kernel.runtime.subprocess.Popen")
     def test_checker_uses_plain_last_message_and_keeps_usage_from_jsonl(self, popen):
         process = self.process(stdout=(
@@ -452,7 +489,7 @@ class RuntimeAdapterTests(unittest.TestCase):
         ))
 
         def launch(argv, **kwargs):
-            output_path = Path(argv[argv.index("--output-last-message") + 1])
+            output_path = self.output_message_path(argv)
             output_path.write_text('{"decision":"approved"}', encoding="utf-8")
             return process
 
@@ -469,7 +506,7 @@ class RuntimeAdapterTests(unittest.TestCase):
         process = self.process(stdout='{"type":"turn.completed"}\n')
 
         def launch(argv, **kwargs):
-            output_path = Path(argv[argv.index("--output-last-message") + 1])
+            output_path = self.output_message_path(argv)
             output_path.write_text('{"protocol_version":1,"tasks":[]}', encoding="utf-8")
             return process
 
@@ -2212,6 +2249,11 @@ class SupervisorTests(unittest.TestCase):
         from codexdevteam_kernel.host_commit import QuiescenceProof
 
         project, base, task = self.prepare_claimed_maker("TASK-105-GATE-REVIEW")
+        (project / "PLAN.md").write_text(
+            f"### {task.task_id}\n**Title:** Run a maker\n**Status:** in_progress\n"
+            "**Assigned_To:** builder\n**Priority:** medium\n**Owned_Paths:** src/**\n",
+            encoding="utf-8",
+        )
         manager = GitWorktreeManager(project, Path(self.temp.name) / "managed-105-gate-review")
 
         class CommittingMaker:
@@ -2239,11 +2281,14 @@ class SupervisorTests(unittest.TestCase):
                          {name: check.summary for name, check in gate.checks.items()})
 
         self.supervisor.finalize_maker_gate(
-            self.lease, cycle, gate, attempt_event_id="gate-maker-105-review", now=105)
+            self.lease, cycle, gate, attempt_event_id="gate-maker-105-review",
+            project_root=project, now=105)
 
         reviewed = self.store.get_task(task.task_id)
         self.assertEqual(reviewed.state, TaskState.NEEDS_REVIEW)
         self.assertIn(gate.test_run_result.evidence_ref, reviewed.test_evidence)
+        self.assertIn("**Status:** needs_review", (project / "PLAN.md").read_text(encoding="utf-8"))
+        self.assertEqual(self.store.pending_plan_projections(), ())
 
         checker_registry = WorkerRegistry.from_dict({
             "protocol_version": 1, "active": ["builder", "checker"],

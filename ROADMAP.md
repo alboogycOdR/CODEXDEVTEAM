@@ -480,6 +480,10 @@ authorization; after activation, the system owns planning and task progression.
 - [ ] Record live strict-verification evidence for every builder enabled in
   the pilot, bound to its runtime and configured model. Do not infer a model's
   capabilities from another model's receipt.
+  - [x] Capture live qualification evidence for `codex` / `gpt-6.1-sol` as
+    maker and `codex` / `gpt-6-sol` as independent checker on a disposable
+    one-task project. The qualification used a temporary non-strict supervisor
+    policy; strict registry receipts and the final strict pilot run remain open.
 - [ ] Measure first-pass rate, review sessions, gate rejection, escalations,
   recovery outcomes, elapsed time, and configured model spend from verified
   standalone pilot receipts. Keep optional fast-tier routing disabled until representative

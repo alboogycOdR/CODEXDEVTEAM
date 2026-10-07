@@ -444,6 +444,46 @@ for strict mode until those capabilities are verified without the bypass.
   continuation. Invocation usage was not retained by the planner command, so
   no cost or usage metric is claimed for this run.
 
+## Windows live worker qualification — 2026-10-07
+
+- Qualification project:
+  `C:\Users\Nuburo\AppData\Local\Temp\CODEXDEVTEAM-v02-qual3-20261007-gpt61`.
+  It is a disposable clone of the fresh brief-generated pilot. The acceptance
+  pilot itself remained parked and unmodified.
+- This qualification used the real Codex runtime adapter, supervisor
+  invocation, Windows Job Object quiescence, host commit, mechanical gate,
+  CONTROL drain, and independent checker. Strict dispatch was temporarily
+  disabled in this one-task qualification harness to generate model-bound
+  evidence before strict workers are registered; it is not evidence that the
+  final host-run or unattended acceptance pilot has passed strict dispatch.
+- Maker `codex-maker-gpt61` / `codex` / `gpt-6.1-sol` completed `TASK-1` in
+  115.8 seconds. The host committed only its three owned paths at
+  `dec8018170b1da76a0d94eae3d154502f9c49028`. The maker submitted CONTROL
+  report `control-2720b70136614c82a5a94e425a122590`; HEAD applied its progress
+  note after the gate. Maker usage was 113,317 input and 1,292 output tokens
+  (102,400 cached input); cost is unknown because no price rate was configured.
+- The exact-SHA gate passed at that commit with fingerprint
+  `b28e1c7d7230167469fbf0f38849d382349f13db1dbf899dce9daec0e7552e7d`. Build,
+  typecheck, full tests, secret scan, territory, and clean-worktree checks
+  passed. The baseline full-test check failed because the baseline did not
+  contain the task's new tests; baseline analysis treated those as newly
+  introduced failures, so the current gate passed.
+- Checker `codex-reviewer-gpt6` / `codex` / `gpt-6-sol` reviewed that exact SHA
+  read-only and approved it. The task reached `done`, PLAN was projected, the
+  host parked, and the HEAD lease was released. Checker usage was 85,109 input
+  and 576 output tokens (66,944 cached input); cost is unknown.
+- This supplies live capability qualification evidence for the configured
+  runtime/model pair. It is one task, not the unattended brief-to-integration
+  acceptance pilot; it did not exercise strict dispatch, bounded rework, or
+  integration. The final pilot still needs strict registry receipts, a fresh
+  capacity snapshot, and the full bounded host-run.
+- Initial nested Codex runs launched directly from Python could not use their
+  file tools (`helper_unknown_error: setup refresh had errors` / failed writes).
+  A disposable PowerShell-launched write probe succeeded. `CodexExecAdapter`
+  now uses a native PowerShell wrapper on Windows; the supervised maker run
+  above verifies writes, Job Object quiescence, and host commit through that
+  path.
+
 ## Normal-trust hook activation experiment at the pilot path — 2026-10-03
 
 - Experiment path: `C:\Users\Nuburo\AppData\Local\Temp\codexdevteam-pilot-rerun-20261003`.

@@ -5,6 +5,7 @@ import json
 import math
 import os
 import re
+import shutil
 import subprocess
 import tempfile
 import threading
@@ -182,10 +183,11 @@ class InvocationResult:
 
 
 class CodexExecAdapter:
-    """Run `codex exec` without a shell, with explicit model and sandbox policy."""
+    """Run `codex exec` with explicit model and sandbox policy."""
 
     BASE_ENVIRONMENT = ("PATH", "PATHEXT", "SYSTEMROOT", "WINDIR", "TEMP", "TMP", "TMPDIR",
-                        "HOME", "USERPROFILE", "APPDATA", "LOCALAPPDATA", "CODEX_HOME")
+                        "HOME", "USERPROFILE", "APPDATA", "LOCALAPPDATA", "CODEX_HOME",
+                        "CODEX_CLI_PATH")
 
     def __init__(self, executable: str = "codex"):
         if not executable.strip():
@@ -246,6 +248,7 @@ class CodexExecAdapter:
         if request.purpose in {"checker", "head"}:
             final_message_path = Path(isolated_temp) / "last-message.txt"
             argv[-1:-1] = ["--output-last-message", str(final_message_path)]
+        launch_argv = _powershell_launch_argv(argv) if os.name == "nt" else argv
         started_at = time.time()
         started = time.monotonic()
         status, exit_code, stdout, stderr = "failed", None, "", ""
@@ -258,7 +261,7 @@ class CodexExecAdapter:
             try:
                 (exit_code, stdout, stderr, cancel_method, cancel_verified,
                  cancel_exit_code, quiescence_proof) = _run_invocation_process(
-                     argv, prompt, cwd, env, request)
+                     launch_argv, prompt, cwd, env, request)
                 usage_output = stdout
                 if cancel_verified is False:
                     status = "termination_unverified"
@@ -329,6 +332,18 @@ class CodexExecAdapter:
                                 process_tree_cancel_verified=cancel_verified,
                                 process_tree_cancel_exit_code=cancel_exit_code,
                                 quiescence_proof=quiescence_proof)
+
+
+def _powershell_launch_argv(argv: list[str]) -> list[str]:
+    """Launch Codex through native PowerShell on Windows with literal arguments."""
+    if not isinstance(argv, list) or not argv or not all(isinstance(item, str) for item in argv):
+        raise ValueError("Codex launch argv must be a non-empty string list")
+    shell = shutil.which("pwsh") or shutil.which("powershell")
+    if shell is None:
+        raise OSError("Windows Codex execution requires PowerShell (pwsh or powershell)")
+    command = "& " + " ".join("'" + item.replace("'", "''") + "'" for item in argv)
+    command += "; exit $LASTEXITCODE"
+    return [shell, "-NoLogo", "-NoProfile", "-NonInteractive", "-Command", command]
 
 
 class _InvocationCancelled(Exception):
