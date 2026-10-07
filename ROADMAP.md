@@ -391,6 +391,9 @@ authorization; after activation, the system owns planning and task progression.
     tracked in the following items.
   - [x] Define strict timestamped capacity snapshot ingestion; the host must
     still connect a real configured capacity source before dispatch.
+  - [ ] Connect a real capacity source that refreshes worker availability
+    without manual edits to `capacity.json`; preserve fail-closed behavior when
+    the source is unavailable, stale, or cannot distinguish model capacity.
   - [x] Add deterministic maker/checker prompt rendering from authoritative
     task records, including ownership/acceptance and exact-SHA review binding.
   - [x] Add a side-effect-free host binding loader for strict worker registry,
@@ -477,17 +480,25 @@ authorization; after activation, the system owns planning and task progression.
   integrate accepted work, recover or escalate on failures, respect
   budgets/timeouts, and reach a defined terminal state without an operator
   advancing each task.
-- [ ] Record live strict-verification evidence for every builder enabled in
+- [x] Record live strict-verification evidence for every builder enabled in
   the pilot, bound to its runtime and configured model. Do not infer a model's
   capabilities from another model's receipt.
   - [x] Capture live qualification evidence for `codex` / `gpt-6.1-sol` as
     maker and `codex` / `gpt-6-sol` as independent checker on a disposable
-    one-task project. The qualification used a temporary non-strict supervisor
-    policy; strict registry receipts and the final strict pilot run remain open.
+    one-task project. That initial qualification used a temporary non-strict
+    supervisor policy and was followed by the strict model-bound pilot evidence.
+  - [x] Run all three planned tasks with strict `codex` / `gpt-6.1-sol` maker
+    and independent strict `codex` / `gpt-6-sol` checker identities, exact-SHA
+    gates, and integration receipts. See `docs/RUNTIME_SMOKE.md`; this evidence
+    does not close the separate unattended-capacity gate below.
 - [ ] Measure first-pass rate, review sessions, gate rejection, escalations,
   recovery outcomes, elapsed time, and configured model spend from verified
   standalone pilot receipts. Keep optional fast-tier routing disabled until representative
   redacted field logs show the agreed accuracy threshold.
+  - [x] Record three approved reviews, three passing task gates, three
+    integrations, zero rework, zero recorded escalations, and the host restart
+    after the PLAN-integrity defect in the 2026-10-07 qualification. Invocation
+    token usage and configured spend remain unknown; capacity refresh was manual.
 - [x] Pass release CI on Windows with the supported Python versions; Linux
   remains compatibility CI only and is not part of supervised maker execution
   (branch-head run [37610157137](https://github.com/alboogycOdR/CODEXDEVTEAM/actions/runs/37610157137)).

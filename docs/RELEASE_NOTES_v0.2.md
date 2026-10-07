@@ -1,7 +1,9 @@
 # CODEXDEVTEAM v0.2 — Release Notes (Draft)
 
-**Release status:** not ready for release. The bounded unattended Windows
-pilot and live strict-worker evidence are still outstanding.
+**Release status:** not ready for release. A three-task strict Windows
+qualification completed, but capacity was refreshed manually and an initial
+host defect required a safe park and restart. An uninterrupted unattended
+acceptance run and an automatic capacity source are still outstanding.
 
 ## What v0.2 adds
 
@@ -27,6 +29,9 @@ pilot and live strict-worker evidence are still outstanding.
   verify the merged commit, and update the project branch only if its ref has
   not changed. Conflicts and failed or interrupted integration create durable
   recovery records.
+- Refuse integration while tracked project changes outside host-projected
+  `PLAN.md` remain uncommitted, preserving configured framework files from the
+  host's branch reset.
 - Report invocation usage and pilot metrics from recorded receipts. Missing
   usage and pricing remain unknown rather than being treated as zero.
 
@@ -45,13 +50,15 @@ pilot and live strict-worker evidence are still outstanding.
 
 ## Current limits and release gates
 
-- A bounded, unattended fresh-project pilot from brief through reviewed
-  integration or durable escalation has not yet been completed. Unit and
-  fixture integration tests do not replace this live evidence.
-- Live strict-verification receipts must be recorded for every builder enabled
-  in the pilot, each bound to its configured runtime and model.
-- Operational first-pass, review, gate rejection, escalation, recovery,
-  elapsed-time, and configured spend metrics still need verified pilot data.
+- A live three-task brief-to-integration qualification completed with strict
+  Codex maker/checker identities, exact-SHA gates, independent approvals, and
+  integration receipts. Its first host process parked after a PLAN integrity
+  defect; the workflow resumed after a local fix and completed. This is not an
+  uninterrupted unattended acceptance run.
+- The qualification recorded three approvals and integrations, no rework, and
+  no recorded escalation. It does not retain complete token usage or configured
+  spend for all invocations, and capacity snapshots were manually refreshed.
+  A connected automatic capacity source and complete pilot metrics remain open.
   Optional fast-tier routing remains disabled until representative evidence
   supports enabling it.
 - Restarted tasks are escalated and left for deliberate operator review; the
@@ -62,10 +69,11 @@ pilot and live strict-worker evidence are still outstanding.
 
 ## Verification recorded during development
 
-- Windows PowerShell full suite: **291 tests passed, 8 skipped** on 2026-10-07.
-- Hosted `kernel-ci` run [37611655141](https://github.com/alboogycOdR/CODEXDEVTEAM/actions/runs/37611655141)
-  passed for commit `ae7d23f`. The newer uncommitted recovery regressions have
-  local Windows coverage; they have not yet been pushed for hosted CI.
+- Windows PowerShell full suite: **294 tests passed, 8 skipped** on 2026-10-07,
+  including PLAN-integrity and tracked-configuration integration regressions.
+- Hosted `kernel-ci` run [37661181949](https://github.com/alboogycOdR/CODEXDEVTEAM/actions/runs/37661181949)
+  passed for pushed commit `45e25c5`. The later PLAN-integrity and integration
+  guard changes are local and still need hosted CI.
 
 These notes describe the current development state. They do not declare v0.2
 complete or authorize release.

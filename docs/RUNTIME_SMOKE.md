@@ -484,6 +484,55 @@ for strict mode until those capabilities are verified without the bypass.
   above verifies writes, Job Object quiescence, and host commit through that
   path.
 
+## Strict fresh-brief three-task qualification — 2026-10-07
+
+- Project: `C:\Users\Nuburo\AppData\Local\Temp\CODEXDEVTEAM-v02-pilot-20261007`.
+  The live planner invocation documented above produced the three-task PLAN;
+  `host-bootstrap` seeded it, and the project was activated only after strict
+  worker and capacity preflight passed.
+- Active maker: `codex-maker-gpt61` / `codex` / `gpt-6.1-sol`; active checker:
+  `codex-reviewer-gpt6` / `codex` / `gpt-6-sol`. Both were configured with
+  `control_mode=strict`, and the supervisor used `require_strict=true`. The
+  exact-SHA checker receipts use a different worker, runtime/model identity,
+  and role from each maker invocation.
+- `TASK-1`, `TASK-2`, and `TASK-3` each completed through maker invocation,
+  host-owned task commit, passing exact-SHA gate, independent checker approval,
+  and post-integration gate. The project ended with all three authoritative
+  tasks `done`, all three integration receipts present, the host parked, and no
+  active HEAD lease. Integrated project SHAs were
+  `aeab2f9388ea4d481d8a8f20c70c77fa62a06588` (`TASK-1`),
+  `f35cb52f08ec599e5c3e175883e944b13f2f3661` (`TASK-2`), and
+  `84e855bd35e7c6374857cc2a4777fbda1568f8c8` (`TASK-3`). There were three
+  successful maker invocations, three successful checker invocations, three
+  passed task gates, three approvals, no rework, and no recorded escalation.
+  Maker durations were 159.9, 227.5, and 133.9 seconds; checker durations were
+  57.6, 62.6, and 49.3 seconds. The two host processes ran for about 3m48s and
+  8m17s, respectively (about 12m05s combined, excluding the pause between
+  processes).
+- This evidence came from two bounded host processes. The first integrated
+  `TASK-1`, then parked after the next PLAN integrity check found that SQLite
+  had appended gate evidence absent from PLAN. The host was resumed after a
+  local fix; the second process completed and integrated `TASK-2` and `TASK-3`.
+  The fix compares planned task content to the immutable `task.seeded` event
+  while checking live status and assignment separately. The full Windows
+  contract suite then passed 294 tests with 8 skipped.
+- The qualification exposed another boundary: integration's `git reset --hard`
+  restored the tracked default worker registry after `TASK-1`, because the
+  pilot's configured registry had not been committed. The active host kept its
+  already-loaded strict registry and completed the remaining strict dispatches,
+  but the on-disk pilot registry returned to its inactive template. A new
+  integration guard now refuses to advance the project ref when tracked files,
+  including CODEXDEVTEAM configuration, are dirty outside host-projected
+  `PLAN.md`. Commit configured framework files before activation.
+- Capacity was refreshed during the run from the current Codex usage status;
+  `quota_remaining` was left unknown. The host has no connected automatic
+  capacity source yet, and the operator refreshed the snapshot between cycles.
+  This was not a fully unattended capacity qualification. The run's invocation
+  receipts retain status and output hashes but not token usage for all six
+  maker/checker calls, so total model spend remains unknown. The run proves the
+  bounded strict workflow and integration path with this recovery, but it does
+  not close the unattended v0.2 release gate.
+
 ## Normal-trust hook activation experiment at the pilot path — 2026-10-03
 
 - Experiment path: `C:\Users\Nuburo\AppData\Local\Temp\codexdevteam-pilot-rerun-20261003`.

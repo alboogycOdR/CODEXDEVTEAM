@@ -15,7 +15,7 @@ from .host_runtime import HostRuntimeBindings, load_host_runtime
 from .onboarding import OnboardingMode, inspect_project
 from .plan_markdown import parse_plan_markdown
 from .prompts import render_checker_prompt, render_maker_prompt
-from .state import HeadLease, StateStore
+from .state import HeadLease, StateStore, TaskRecord
 from .supervisor import (MakerCloseoutResult, Supervisor,
                          ContinuousSupervisorResult,
                          SupervisorLaunchCycleResult, SupervisorPolicy)
@@ -243,14 +243,39 @@ def _verify_plan_matches_authoritative_state(project_root: Path, store: StateSto
     plan_tasks = {task.task_id: task for task in parsed.tasks}
     if set(plan_tasks) != set(state_tasks):
         raise ValueError("PLAN.md task IDs differ from the authoritative task store")
+
+    # The state record accumulates runtime test-run evidence after seeding, while
+    # PLAN.md retains the task's original planned test evidence. Compare both
+    # against the immutable seed snapshot so a legitimate gate receipt does not
+    # look like PLAN tampering on the next dispatch cycle.
+    seeded_tasks: dict[str, TaskRecord] = {}
+    for event in store.events():
+        payload = event.get("payload")
+        if not isinstance(payload, dict) or payload.get("type") != "task.seeded":
+            continue
+        raw_task = payload.get("task")
+        if not isinstance(raw_task, dict):
+            continue
+        seeded = TaskRecord.from_dict(raw_task)
+        seeded_tasks.setdefault(seeded.task_id, seeded)
+
     mutable_fields = {"state", "assigned_worker", "maker_identity"}
+    state_runtime_fields = mutable_fields | {"test_evidence"}
     for task_id, authoritative in state_tasks.items():
         projected = plan_tasks[task_id]
-        left = {key: value for key, value in authoritative.to_dict().items()
-                if key not in mutable_fields}
-        right = {key: value for key, value in projected.to_dict().items()
-                 if key not in mutable_fields}
-        if left != right:
+        seeded = seeded_tasks.get(task_id, authoritative)
+        baseline = seeded.to_dict()
+        state_content = {key: value for key, value in authoritative.to_dict().items()
+                         if key not in state_runtime_fields}
+        seeded_content = {key: value for key, value in baseline.items()
+                          if key not in state_runtime_fields}
+        plan_content = {key: value for key, value in projected.to_dict().items()
+                        if key not in mutable_fields}
+        planned_content = {key: value for key, value in baseline.items()
+                           if key not in mutable_fields}
+        if state_content != seeded_content:
+            raise ValueError(f"authoritative task content changed after seeding for {task_id}")
+        if plan_content != planned_content:
             raise ValueError(f"PLAN.md changed authoritative task content for {task_id}")
         if (projected.state is not authoritative.state
                 or projected.assigned_worker != authoritative.assigned_worker):

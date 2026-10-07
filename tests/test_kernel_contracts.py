@@ -6313,6 +6313,67 @@ class HostRecoveryAndIntegrationTests(unittest.TestCase):
             raise AssertionError(result.stderr)
         return result.stdout.strip()
 
+    def test_plan_integrity_allows_runtime_gate_evidence_but_rejects_plan_edits(self):
+        from dataclasses import replace
+        from codexdevteam_kernel.host_runner import _verify_plan_matches_authoritative_state
+
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp) / "project"
+            root.mkdir()
+            task = TaskRecord(
+                "TASK-PLAN-CHECK", "Verify projected plan", TaskState.PENDING, None,
+                "high", ("src/**",), acceptance_criteria=("Keep the seed criteria.",),
+                test_evidence=("Run the planned test command.",),
+            )
+            plan = (
+                "### TASK-PLAN-CHECK\n"
+                "**Title:** Verify projected plan\n"
+                "**Status:** pending\n"
+                "**Assigned_To:** —\n"
+                "**Priority:** high\n"
+                "**Owned_Paths:** src/**\n"
+                "**Protected_Grants:** —\n"
+                "**Depends_On:** —\n"
+                "**Acceptance_Criteria:**\n- Keep the seed criteria.\n"
+                "**Test_Evidence:**\n- Run the planned test command.\n"
+            )
+            plan_path = root / "PLAN.md"
+            plan_path.write_text(plan, encoding="utf-8")
+            store = StateStore(root / ".codexdevteam" / "state.sqlite")
+            lease = store.acquire_head("plan-check", "plan-check", ttl_seconds=300)
+            store.seed_task(lease, task, event_id="seed-plan-check")
+
+            updated = replace(
+                task, state=TaskState.DONE, assigned_worker="maker",
+                maker_identity={"unit_id": "maker", "runtime": "codex", "model": "model-a"},
+                test_evidence=("Run the planned test command.", "testrun:sha:test:artifact"),
+            )
+            db = store._connect()
+            try:
+                db.execute("UPDATE tasks SET payload_json=? WHERE task_id=?",
+                           (json.dumps(updated.to_dict(), sort_keys=True, separators=(",", ":")),
+                            task.task_id))
+                db.commit()
+            finally:
+                db.close()
+            projected, _ = patch_plan_task_state(
+                plan, task_id=task.task_id, state=TaskState.DONE, assigned_worker="maker",
+                expected_sha256=hashlib.sha256(plan.encode("utf-8")).hexdigest(),
+            )
+            plan_path.write_text(projected, encoding="utf-8")
+
+            _verify_plan_matches_authoritative_state(root, store)
+
+            tampered = projected.replace("Keep the seed criteria.", "Changed seed criteria.")
+            plan_path.write_text(tampered, encoding="utf-8")
+            with self.assertRaisesRegex(ValueError, "PLAN.md changed authoritative task content"):
+                _verify_plan_matches_authoritative_state(root, store)
+
+            tampered = projected.replace("Run the planned test command.", "Run a different test.")
+            plan_path.write_text(tampered, encoding="utf-8")
+            with self.assertRaisesRegex(ValueError, "PLAN.md changed authoritative task content"):
+                _verify_plan_matches_authoritative_state(root, store)
+
     @unittest.skipUnless(os.name == "nt", "Windows host recovery is Windows-only")
     def test_restart_recovery_escalates_and_preserves_interrupted_task(self):
         from codexdevteam_kernel.host_runner import recover_interrupted_host_tasks
@@ -6512,10 +6573,15 @@ class HostRecoveryAndIntegrationTests(unittest.TestCase):
             self._git(root, "config", "user.name", "Test Host")
             self._git(root, "config", "user.email", "test-host@example.invalid")
             (root / ".gitignore").write_text(".codexdevteam/\n", encoding="utf-8")
+            registry_path = root / ".codexdevteam" / "framework" / "registry.template.json"
+            registry_path.parent.mkdir(parents=True)
+            original_registry = '{"active": []}\n'
+            registry_path.write_text(original_registry, encoding="utf-8")
             (root / "PLAN.md").write_text("# Plan\n", encoding="utf-8")
             (root / "src").mkdir()
             (root / "src" / "base.py").write_text("BASE = True\n", encoding="utf-8")
             self._git(root, "add", ".")
+            self._git(root, "add", "-f", ".codexdevteam/framework/registry.template.json")
             self._git(root, "commit", "-m", "base")
             base_sha = self._git(root, "rev-parse", "HEAD")
 
@@ -6545,6 +6611,18 @@ class HostRecoveryAndIntegrationTests(unittest.TestCase):
             gate_runner = GateRunner(root, root / ".codexdevteam" / "gates")
             commands = {name: (sys.executable, "-c", "pass")
                         for name in ("build", "typecheck", "test_full")}
+
+            registry_path.write_text('{"active": ["configured-maker"]}\n', encoding="utf-8")
+            with patch.object(store, "verified_review_events", return_value=[approved_event]):
+                with self.assertRaisesRegex(ValueError, "clean outside host-projected PLAN"):
+                    integrate_approved_task(
+                        config, store, lease, task_id, gate_runner, commands,
+                        expected_base_sha=base_sha,
+                    )
+            self.assertEqual(self._git(root, "rev-parse", "HEAD"), base_sha)
+            self.assertEqual(registry_path.read_text(encoding="utf-8"),
+                             '{"active": ["configured-maker"]}\n')
+            registry_path.write_text(original_registry, encoding="utf-8")
 
             # A task branch from an older common base must reach merge conflict
             # handling instead of being mistaken for unrelated Git history.

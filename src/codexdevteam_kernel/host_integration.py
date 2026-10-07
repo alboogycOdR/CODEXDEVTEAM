@@ -74,9 +74,9 @@ def integrate_approved_task(config: WindowsHostConfig, store: StateStore,
     if target_sha != base_sha:
         raise ValueError("checked-out project branch differs from its HEAD commit")
     status = _git(repository, "status", "--porcelain", "--untracked-files=all",
-                  "--", ".", ":(exclude).codexdevteam/**", ":(exclude)PLAN.md")
+                  "--", ".", ":(exclude)PLAN.md")
     if status.strip():
-        raise ValueError("project checkout must be clean outside host metadata and PLAN.md")
+        raise ValueError("project checkout must be clean outside host-projected PLAN.md")
     plan_path = repository / "PLAN.md"
     if plan_path.is_symlink() or not plan_path.is_file():
         raise ValueError("integration requires a regular host-projected PLAN.md")
@@ -165,7 +165,7 @@ def integrate_approved_task(config: WindowsHostConfig, store: StateStore,
         current_head = _git(repository, "rev-parse", "HEAD").strip().lower()
         current_branch = _git(repository, "symbolic-ref", "--quiet", "--short", "HEAD").strip()
         status = _git(repository, "status", "--porcelain", "--untracked-files=all",
-                      "--", ".", ":(exclude).codexdevteam/**", ":(exclude)PLAN.md")
+                      "--", ".", ":(exclude)PLAN.md")
         if current != base_sha or current_head != base_sha or current_branch != branch or status.strip():
             _escalate(store, lease, task_id, transaction_id,
                       "project checkout changed after integration verification")

@@ -14,7 +14,9 @@ supported for supervised builder execution.
 2. Configure `.codexdevteam/framework/registry.template.json` with strict,
    live-verified worker identities. Use distinct maker and `reviewer` (or
    `judgment`) roles with different configured runtime/model identities. The
-   host currently binds the Codex CLI runtime only.
+   host currently binds the Codex CLI runtime only. Commit tracked framework
+   configuration before activation; integration refuses to advance the project
+   ref while tracked configuration changes are uncommitted.
 3. Configure concrete `build`, `typecheck`, and `test_full` argv arrays and
    `strict_supervision: true` in
    `.codexdevteam/framework/verification.json`.
@@ -29,6 +31,9 @@ supported for supervised builder execution.
    Fill `observed_at` and one worker entry per active worker with freshly
    observed availability, free slots, quota, and any cooldown. Do not estimate
    capacity or copy an old observation forward.
+   CODEXDEVTEAM currently requires this timestamped snapshot but does not yet
+   connect an automatic provider capacity source; manual file refresh is not
+   unattended capacity monitoring.
 5. Ensure `PLAN.md` contains only unassigned `pending` or `blocked` tasks, plus
    valid archived stubs. Tasks already `claimed`, `in_progress`, `needs_review`,
    or `done` require an explicit migration/review decision and block bootstrap.
