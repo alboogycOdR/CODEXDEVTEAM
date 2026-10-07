@@ -71,9 +71,9 @@ acceptance run and an automatic capacity source are still outstanding.
 
 - Windows PowerShell full suite: **294 tests passed, 8 skipped** on 2026-10-07,
   including PLAN-integrity and tracked-configuration integration regressions.
-- Hosted `kernel-ci` run [37661181949](https://github.com/alboogycOdR/CODEXDEVTEAM/actions/runs/37661181949)
-  passed for pushed commit `45e25c5`. The later PLAN-integrity and integration
-  guard changes are local and still need hosted CI.
+- Hosted `kernel-ci` run [37664978715](https://github.com/alboogycOdR/CODEXDEVTEAM/actions/runs/37664978715)
+  passed for pushed commit `9d8d693`, including the PLAN-integrity and
+  tracked-configuration integration regressions.
 
 These notes describe the current development state. They do not declare v0.2
 complete or authorize release.
