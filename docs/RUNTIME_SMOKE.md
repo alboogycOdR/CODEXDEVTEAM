@@ -888,3 +888,17 @@ for strict mode until those capabilities are verified without the bypass.
   routing remains disabled. The authoritative state database is preserved in
   the disposable pilot at
   `C:\Users\Nuburo\AppData\Local\Temp\CODEXDEVTEAM-live-capacity-acceptance-20261007-r7\.codexdevteam\state\state.sqlite`.
+
+## v0.2 candidate hosted CI — 2026-10-07
+
+- Candidate commit: `37765a273064fa506753cee17e3aec743bf72466` on
+  `codex/v02-parity`.
+- Hosted workflow [37691384320](https://github.com/alboogycOdR/CODEXDEVTEAM/actions/runs/37691384320)
+  passed all four matrix jobs: Windows and Ubuntu compatibility on Python
+  3.11 and 3.12. Each job compiled and installed the package, smoke-checked
+  the installed command and hook entry points, imported the kernel, and passed
+  the contract suite.
+- Windows Python 3.11 completed in 2m38s and Windows Python 3.12 in 2m42s.
+  Ubuntu compatibility jobs completed in 18s and 16s respectively.
+- This is hosted evidence for the exact v0.2 candidate source. Ubuntu remains
+  compatibility coverage; supervised maker execution remains Windows-only.

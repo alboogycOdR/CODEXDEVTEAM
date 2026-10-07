@@ -547,12 +547,12 @@ authorization; after activation, the system owns planning and task progression.
     simple-task sample; use no fast-tier routing until the release accuracy
     threshold is explicitly set and the sample meets it. This closes the v0.2
     standard-tier measurement report; fast-tier eligibility remains deferred.
-- [ ] Pass hosted release CI on the final v0.2 candidate on Windows with the
-  supported Python versions. The earlier branch-head run
-  [37610157137](https://github.com/alboogycOdR/CODEXDEVTEAM/actions/runs/37610157137)
-  passed before the current uncommitted capacity and closeout changes; rerun CI
-  on the final candidate before release. Linux remains compatibility CI only
-  and is not part of supervised maker execution.
+- [x] Pass hosted release CI on the final v0.2 candidate on Windows with the
+  supported Python versions. Run
+  [37691384320](https://github.com/alboogycOdR/CODEXDEVTEAM/actions/runs/37691384320)
+  passed on candidate commit `37765a273064fa506753cee17e3aec743bf72466` for
+  Windows and Linux compatibility jobs with Python 3.11 and 3.12. Linux remains
+  compatibility CI only and is not part of supervised maker execution.
 - [ ] Publish v0.2 release notes that state proven behavior, enabled runtimes,
   host limitations, recovery steps, and any remaining parity gaps.
   - [x] Finalize release notes against the bounded live pilot, strict-worker

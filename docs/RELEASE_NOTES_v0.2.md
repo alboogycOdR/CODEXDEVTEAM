@@ -89,10 +89,12 @@ configured.
 - Windows PowerShell full suite: **311 tests passed, 8 skipped** on both
   Python 3.11 and 3.12 on 2026-10-07, including live-capacity adapter and
   closeout failure handling regressions.
-- The latest hosted CI evidence is still run
-  [37674230702](https://github.com/alboogycOdR/CODEXDEVTEAM/actions/runs/37674230702)
-  for commit `798c4ef7a07ad42d3f145030dfcb50927992d131`. It predates the current
-  uncommitted changes; hosted CI for the final v0.2 candidate remains open.
+- Hosted CI run
+  [37691384320](https://github.com/alboogycOdR/CODEXDEVTEAM/actions/runs/37691384320)
+  passed on candidate commit `37765a273064fa506753cee17e3aec743bf72466` for
+  Windows and Linux compatibility jobs with Python 3.11 and 3.12. The Windows
+  jobs validate the supported supervised runtime; Linux remains compatibility
+  coverage only.
 - Local Windows packaging check: the updated source built a wheel with Python
   3.11, installed into a disposable target, and all five packaged entry points
   passed their help/fail-closed smoke checks. The v0.2.0 wheel metadata and
@@ -106,6 +108,6 @@ configured.
   recovery verified the Windows Job Object process tree quiescent. A later
   corrected disposable fixture completed the full path; both outcomes and the
   fixture requirements are recorded in `docs/RUNTIME_SMOKE.md`.
-- Latest hosted CI run [37674230702](https://github.com/alboogycOdR/CODEXDEVTEAM/actions/runs/37674230702)
-  passed for commit `798c4ef7a07ad42d3f145030dfcb50927992d131` on Windows and
-  Ubuntu compatibility jobs with Python 3.11 and 3.12.
+- Latest hosted CI run [37691384320](https://github.com/alboogycOdR/CODEXDEVTEAM/actions/runs/37691384320)
+  passed for candidate commit `37765a273064fa506753cee17e3aec743bf72466` on
+  Windows and Ubuntu compatibility jobs with Python 3.11 and 3.12.
