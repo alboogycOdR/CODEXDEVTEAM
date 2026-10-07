@@ -422,6 +422,28 @@ for strict mode until those capabilities are verified without the bypass.
   handover, reverse transfer, process fencing, or representative field-log
   accuracy, and does not authorize activation on an existing project.
 
+## v0.2 fresh-brief planner invocation — 2026-10-07
+
+- Project: `C:\Users\Nuburo\AppData\Local\Temp\CODEXDEVTEAM-v02-pilot-20261007`,
+  a newly initialized disposable Git project with inactive CODEXDEVTEAM
+  metadata and no DEVDEPARTMENT files.
+- The current source CLI ran `host-plan --confirm-write` from a brief. Its
+  configured planner identity was `codex-head` / `codex` / `gpt-6.1-sol`.
+  The live invocation completed successfully and created a mechanically
+  validated, unassigned three-task PLAN with provenance:
+  invocation `planner-8ea9a11bce764a1b9d8ef20e3ca92709`, brief SHA-256
+  `facff97ec886e4d2152361897676f93b16fa883d73defe50bfa119594ce42e93`,
+  response SHA-256
+  `33624ce58c61988c0e6e0db5d31346cfacf1b2a4c66c2324344ee6df14ec6173`, and
+  validated plan-body SHA-256
+  `36fb0a62713ac0e10efde63138d8cdf074f33d519af4c90e65987b9bfb4e9bfb`.
+- The project remained parked; no task database, active HEAD lease, maker
+  dispatch, host commit, gate, or checker run was created. This verifies only
+  live brief-to-plan generation. It is not a strict-worker receipt or the
+  v0.2 unattended pilot. The generated project and PLAN remain in Temp for
+  continuation. Invocation usage was not retained by the planner command, so
+  no cost or usage metric is claimed for this run.
+
 ## Normal-trust hook activation experiment at the pilot path — 2026-10-03
 
 - Experiment path: `C:\Users\Nuburo\AppData\Local\Temp\codexdevteam-pilot-rerun-20261003`.

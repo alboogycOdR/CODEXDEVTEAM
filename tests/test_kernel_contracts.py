@@ -431,6 +431,7 @@ class RuntimeAdapterTests(unittest.TestCase):
         kwargs = run.call_args.kwargs
         self.assertIn("configured-model", argv)
         self.assertIn("--output-last-message", argv)
+        self.assertIn('approval_policy="never"', argv)
         self.assertIn('model_reasoning_effort="high"', argv)
         self.assertIn("read-only", argv)
         self.assertEqual(argv[-1], "-")
@@ -6299,6 +6300,158 @@ class HostRecoveryAndIntegrationTests(unittest.TestCase):
                         if event["payload"].get("type") == "supervisor.restart_recovery_completed"]
             self.assertEqual(len(recovery), 1)
             self.assertFalse(recovery[0]["payload"]["dispatch_permitted"])
+
+    @unittest.skipUnless(os.name == "nt", "Windows host recovery is Windows-only")
+    def test_restart_recovery_refuses_unproven_quiescence_and_preserves_task_branch(self):
+        from codexdevteam_kernel.host_runner import recover_interrupted_host_tasks
+        from codexdevteam_kernel.process_identity import ProcessIdentity
+        from codexdevteam_kernel.process_reaper import ProcessReapResult, ProcessReapStatus
+
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp) / "project"
+            root.mkdir()
+            self._git(root, "init", "-b", "main")
+            self._git(root, "config", "user.name", "Recovery Test")
+            self._git(root, "config", "user.email", "recovery-test@example.invalid")
+            (root / "README.md").write_text("base\n", encoding="utf-8")
+            self._git(root, "add", "README.md")
+            self._git(root, "commit", "-m", "base")
+            branch = "codexdevteam/TASK-RESTART-UNVERIFIED"
+            self._git(root, "checkout", "-b", branch)
+            (root / "work-in-progress.txt").write_text("preserve this work\n", encoding="utf-8")
+            self._git(root, "add", "work-in-progress.txt")
+            self._git(root, "commit", "-m", "interrupted task work")
+            branch_sha = self._git(root, "rev-parse", branch)
+            self._git(root, "checkout", "main")
+
+            config = self._config(root)
+            config.state_db.parent.mkdir(parents=True)
+            store = StateStore(config.state_db)
+            lease = store.acquire_head(config.system_id, config.instance_id, ttl_seconds=300)
+            task = TaskRecord(
+                "TASK-RESTART-UNVERIFIED", "Inspect interrupted work", TaskState.CLAIMED,
+                "maker", "high", ("src/**",),
+                maker_identity={"unit_id": "maker", "runtime": "codex", "model": "model-a"},
+            )
+            store.seed_task(lease, task, event_id="seed-unverified-restart-task")
+            store.set_supervisor_mode(lease, "running", event_id="run-unverified-restart")
+            invocation_id = "maker:unverified-restart"
+            store.start_task_invocation(lease, task.task_id, invocation_id)
+            identity = ProcessIdentity(
+                987654, "windows:fixture-process", 987654,
+                "Global\\CODEXDEVTEAM-" + "a" * 32,
+            )
+            store.record_task_invocation_process(lease, task.task_id, invocation_id, identity)
+            unverified = ProcessReapResult(
+                ProcessReapStatus.UNVERIFIED, "windows_job_object", identity.pid, None,
+            )
+
+            with patch("codexdevteam_kernel.state.reap_managed_process",
+                       return_value=unverified):
+                unresolved = recover_interrupted_host_tasks(config, store, lease)
+
+            self.assertEqual(unresolved, (task.task_id,))
+            live = store.task_invocation_liveness(task_id=task.task_id)
+            self.assertEqual(live[0]["state"], "running")
+            self.assertEqual(live[0]["process_containment_ref"], identity.containment_ref)
+            self.assertEqual(self._git(root, "rev-parse", branch), branch_sha)
+            self.assertFalse((root / "work-in-progress.txt").exists())
+            escalation = next(
+                event["payload"] for event in store.events()
+                if event["payload"].get("type") == "escalation.recorded"
+                and event["payload"].get("task_id") == task.task_id
+            )
+            self.assertIn("process tree is still unverified", escalation["message"])
+            completed = next(
+                event["payload"] for event in store.events()
+                if event["payload"].get("type") == "supervisor.restart_recovery_completed"
+            )
+            self.assertFalse(completed["dispatch_permitted"])
+
+    @unittest.skipUnless(os.name == "nt", "Windows Job Object recovery is Windows-only")
+    def test_restart_recovery_reaps_job_tree_and_preserves_task_branch(self):
+        from dataclasses import replace
+        from codexdevteam_kernel.host_runner import recover_interrupted_host_tasks
+        from codexdevteam_kernel.process_identity import capture_process_identity
+        from codexdevteam_kernel.windows_jobs import WindowsJob
+
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp) / "project"
+            root.mkdir()
+            self._git(root, "init", "-b", "main")
+            self._git(root, "config", "user.name", "Recovery Test")
+            self._git(root, "config", "user.email", "recovery-test@example.invalid")
+            (root / "README.md").write_text("base\n", encoding="utf-8")
+            self._git(root, "add", "README.md")
+            self._git(root, "commit", "-m", "base")
+            branch = "codexdevteam/TASK-RESTART-JOB"
+            self._git(root, "checkout", "-b", branch)
+            (root / "work-in-progress.txt").write_text("preserve this work\n", encoding="utf-8")
+            self._git(root, "add", "work-in-progress.txt")
+            self._git(root, "commit", "-m", "interrupted task work")
+            branch_sha = self._git(root, "rev-parse", branch)
+            self._git(root, "checkout", "main")
+
+            config = self._config(root)
+            config.state_db.parent.mkdir(parents=True)
+            store = StateStore(config.state_db)
+            lease = store.acquire_head(config.system_id, config.instance_id, ttl_seconds=600)
+            task = TaskRecord(
+                "TASK-RESTART-JOB", "Inspect interrupted work", TaskState.CLAIMED,
+                "maker", "high", ("src/**",),
+                maker_identity={"unit_id": "maker", "runtime": "codex", "model": "model-a"},
+            )
+            store.seed_task(lease, task, event_id="seed-job-restart-task")
+            store.set_supervisor_mode(lease, "running", event_id="run-job-restart")
+            invocation_id = "maker:job-restart"
+            store.start_task_invocation(lease, task.task_id, invocation_id)
+
+            job = WindowsJob.create()
+            process = None
+            try:
+                child_code = (
+                    "import subprocess,sys; "
+                    "subprocess.Popen([sys.executable,'-c','import time; time.sleep(60)'], "
+                    "stdin=subprocess.DEVNULL,stdout=subprocess.DEVNULL,"
+                    "stderr=subprocess.DEVNULL); print('maker-finished', flush=True)"
+                )
+                process = subprocess.Popen(
+                    [sys.executable, "-c", child_code], cwd=root,
+                    stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                    text=True, encoding="utf-8", errors="replace", shell=False,
+                    creationflags=(getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0) | 0x4),
+                )
+                job.assign(process)
+                identity = replace(capture_process_identity(process.pid),
+                                   containment_ref=job.name)
+                store.record_task_invocation_process(
+                    lease, task.task_id, invocation_id, identity,
+                )
+                job.resume(process)
+                stdout, _stderr = process.communicate(timeout=10)
+                self.assertEqual(stdout.strip(), "maker-finished")
+                self.assertGreater(job.active_process_count(), 0)
+
+                unresolved = recover_interrupted_host_tasks(config, store, lease)
+
+                self.assertEqual(unresolved, (task.task_id,))
+                self.assertEqual(job.active_process_count(), 0)
+                live = store.task_invocation_liveness(task_id=task.task_id)
+                self.assertEqual(live[0]["state"], "completed")
+                self.assertEqual(self._git(root, "rev-parse", branch), branch_sha)
+                self.assertFalse((root / "work-in-progress.txt").exists())
+                completion = next(
+                    event["payload"] for event in store.events()
+                    if event["payload"].get("type") == "supervisor.restart_recovery_completed"
+                )
+                self.assertFalse(completion["dispatch_permitted"])
+            finally:
+                if job.active_process_count():
+                    job.terminate_and_verify(timeout_seconds=5)
+                job.close()
+                if process is not None and process.poll() is None:
+                    process.kill()
+                    process.wait(timeout=5)
 
     @unittest.skipUnless(os.name == "nt", "Windows host integration is Windows-only")
     def test_approved_task_integrates_only_after_post_gate_and_preserves_plan(self):

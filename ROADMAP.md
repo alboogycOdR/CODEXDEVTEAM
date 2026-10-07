@@ -397,10 +397,12 @@ authorization; after activation, the system owns planning and task progression.
     Codex runtime adapters, and concrete verification commands; unsupported
     runtimes fail closed.
   - [x] Add a read-only host preflight command for binding and capacity readiness.
+  - [x] Set supervised Codex CLI approval handling to `never` so actions that
+    need operator approval fail promptly; keep the configured sandbox active.
   - [x] Allow closeout to render the checker prompt from the passed gate's
     exact SHA and fingerprint.
   - [x] Compose bounded host cycle inputs and mandatory maker gate/checker
-    closeout helpers. Crash recovery remains outstanding.
+    closeout helpers. Restart recovery is tracked below.
   - [x] Add a Windows-only bounded host loop that requires an already-running
     lease and performs closeout before the supervisor advances.
   - [x] Add explicit fresh-project activation that acquires the exclusive HEAD
@@ -422,7 +424,7 @@ authorization; after activation, the system owns planning and task progression.
     running maker records, and task-state totals.
   - [x] Drive checker-requested work through the existing durable review ledger
     and bounded requeue policy, passing verified rationale/evidence to the
-    same maker. Crash recovery and regression coverage remain outstanding.
+    same maker. Restart recovery is tracked below.
 - [x] Add brief-to-plan bootstrap: Codex drafts a complete task plan, and
   mechanical validation checks task vocabulary, dependencies, acceptance
   criteria, Owned_Paths, and Protected_Grants before creating authoritative
@@ -447,13 +449,13 @@ authorization; after activation, the system owns planning and task progression.
   assignments. Dispatch still filters for strict verification, fresh capacity,
   and independent maker/checker identities. The complete kernel contract suite
   passes after this change.
-- [ ] Implement restart recovery for the standalone Windows host using the
+- [x] Implement restart recovery for the standalone Windows host using the
   existing lease, invocation-liveness, and Windows Job Object evidence.
   Interrupted work must be safely resumed or durably escalated before dispatch.
   - [x] Add lease-authorized startup scanning, signed cancellation receipt
     recovery, Windows Job Object reaping, durable escalation for interrupted
     claimed/in-progress/review tasks, and park-before-dispatch behavior.
-  - [ ] Add Windows lifecycle regressions for process-tree reaping success and
+  - [x] Add Windows lifecycle regressions for process-tree reaping success and
     refusal when quiescence cannot be proved; verify preserved task branches.
 - [x] Define controlled integration of independently reviewed task branches
   into the project branch, with post-integration mechanical verification and
@@ -487,6 +489,8 @@ authorization; after activation, the system owns planning and task progression.
   (branch-head run [37610157137](https://github.com/alboogycOdR/CODEXDEVTEAM/actions/runs/37610157137)).
 - [ ] Publish v0.2 release notes that state proven behavior, enabled runtimes,
   host limitations, recovery steps, and any remaining parity gaps.
+  - [x] Draft release notes from current repository evidence; finalize them
+    after the bounded live pilot and strict-worker receipts.
 
 ### v0.2 release gates
 

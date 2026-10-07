@@ -206,7 +206,8 @@ class CodexExecAdapter:
                        f"Gate fingerprint: {request.gate_fingerprint}\n"
                        "Provide a verdict for exactly this committed task state.")
         argv = [self.executable, "exec", "--json", "--ephemeral", "--model",
-                request.identity.model, "--sandbox", sandbox, "--cd", str(cwd), "-"]
+                request.identity.model, "-c", 'approval_policy="never"',
+                "--sandbox", sandbox, "--cd", str(cwd), "-"]
         if request.reasoning_effort:
             argv[2:2] = ["-c", f'model_reasoning_effort="{request.reasoning_effort}"']
         names = set(self.BASE_ENVIRONMENT) | set(request.allowed_environment)

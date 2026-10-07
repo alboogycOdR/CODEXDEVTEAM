@@ -90,9 +90,12 @@ resolved repository paths. A Codex `PreToolUse` adapter covers structured
 file-edit events. Maker launches provide a per-invocation read-only SQLite
 snapshot containing only the current task and other active task territory
 fields; it is placed under the task worktree's Git metadata and removed after
-the runtime exits. Real maker/checker invocations renew the exclusive HEAD lease and
-propagate lease loss to the Codex adapter, which cancels and reaps the runtime
-process group; invocation timeouts use the same tree cleanup. The post-run gate
+the runtime exits. Real maker/checker invocations renew the exclusive HEAD lease
+and propagate lease loss to the Codex adapter, which cancels and reaps the
+runtime process tree; on Windows this uses a Job Object. Supervised `codex exec`
+sets `approval_policy="never"` through its configuration override, so
+approval-dependent actions fail promptly while the configured sandbox remains
+enabled. Invocation timeouts use the same tree cleanup. The post-run gate
 requires a snapshot of all authoritative tasks and includes active territory
 owners in its fingerprint, rejecting changes that overlap another claimed,
 in-progress, or needs-review task. It applies the same protected-path/grant
@@ -290,9 +293,11 @@ signals the local loop, allowing the current cycle to finish gate and review
 before the loop writes parked mode and releases the lease. Checker-requested
 rework is driven through the existing durable review ledger and requeue cap;
 verified checker rationale and evidence references are passed back to the
-original maker. Exhausted rework remains open for human recovery. Crash recovery
-and the host-specific DEVDEPARTMENT fence remain outstanding. An embedding
-host can call `park_configured_host()` under the same lease for the same
+original maker. Exhausted rework remains open for human recovery. Windows
+restart recovery verifies or reaps persisted Job Object trees, escalates
+interrupted tasks, preserves their branches, and parks before further dispatch.
+The host-specific DEVDEPARTMENT fence remains outstanding. An embedding host
+can call `park_configured_host()` under the same lease for the same
 graceful-stop behavior.
 `codexdevteam host-preflight --project <path>` checks the bindings and
 timestamped capacity snapshot without activating, dispatching, or creating
