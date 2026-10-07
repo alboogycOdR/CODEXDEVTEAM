@@ -455,7 +455,7 @@ authorization; after activation, the system owns planning and task progression.
     claimed/in-progress/review tasks, and park-before-dispatch behavior.
   - [ ] Add Windows lifecycle regressions for process-tree reaping success and
     refusal when quiescence cannot be proved; verify preserved task branches.
-- [ ] Define controlled integration of independently reviewed task branches
+- [x] Define controlled integration of independently reviewed task branches
   into the project branch, with post-integration mechanical verification and
   rollback or escalation on conflicts.
   - [x] Add exact-approved-SHA integration through a temporary worktree, a
