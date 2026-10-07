@@ -503,7 +503,9 @@ authorization; after activation, the system owns planning and task progression.
     gates, 0 gate rejections, 0 changes requested, 0 escalations, 0 active
     invocations at close, elapsed time, and token usage for all 6 model calls.
     Configured spend remains unknown because no pricing rates were configured;
-    see `docs/RUNTIME_SMOKE.md`.
+    see `docs/RUNTIME_SMOKE.md`. The reporting API now returns aggregate token
+    totals only when all invocation receipts contain complete counters, and
+    explicitly reports incomplete telemetry otherwise.
   - [x] Record three approved reviews, three passing task gates, three
     integrations, zero rework, zero recorded escalations, and the host restart
     after the PLAN-integrity defect in the 2026-10-07 qualification. Invocation

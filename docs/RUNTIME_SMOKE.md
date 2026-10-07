@@ -732,6 +732,9 @@ for strict mode until those capabilities are verified without the bypass.
   excluded from the commit, and other ignored paths still refuse it. The final
   acceptance run used `**/__pycache__` and `**/__pycache__/**`.
 - Local Windows PowerShell full suite after this policy change: **295 passed,
-  8 skipped**. Hosted CI has not yet run against the current uncommitted source
-  changes; the last hosted pass is run [37665543445](https://github.com/alboogycOdR/CODEXDEVTEAM/actions/runs/37665543445)
-  for commit `f178b5403f6769891ac811480626c551a909e31c`.
+  8 skipped**. Hosted CI run [37672717256](https://github.com/alboogycOdR/CODEXDEVTEAM/actions/runs/37672717256)
+  passed for commit `9bd0469fcaf5e0b5f59075bf9eb1f8ec20e3aa34`. The subsequent
+  token-coverage reporting change also passed local usage and pilot tests plus
+  the full Windows suite (**295 passed, 8 skipped**); hosted CI run
+  [37674230702](https://github.com/alboogycOdR/CODEXDEVTEAM/actions/runs/37674230702)
+  passed for commit `798c4ef7a07ad42d3f145030dfcb50927992d131`.

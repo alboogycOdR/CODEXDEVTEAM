@@ -76,6 +76,6 @@ source and hosted CI for the latest uncommitted change remain outstanding.
 
 - Windows PowerShell full suite: **295 tests passed, 8 skipped** on 2026-10-07,
   including the configured ignored-artifact allowlist regression.
-- The latest hosted CI pass remains run [37665543445](https://github.com/alboogycOdR/CODEXDEVTEAM/actions/runs/37665543445)
-  for commit `f178b5403f6769891ac811480626c551a909e31c`; the current local
-  changes have not yet been pushed or covered by hosted CI.
+- Latest hosted CI run [37674230702](https://github.com/alboogycOdR/CODEXDEVTEAM/actions/runs/37674230702)
+  passed for commit `798c4ef7a07ad42d3f145030dfcb50927992d131` on Windows and
+  Ubuntu compatibility jobs with Python 3.11 and 3.12.
