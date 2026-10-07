@@ -293,7 +293,11 @@ def recover_pending_integrations(config: WindowsHostConfig, store: StateStore,
                 "candidate_sha": journal["integrated_sha"],
                 "reason": "host stopped before advancing the target branch",
             })
-            _escalate(store, lease, task_id, transaction_id,
+            # A failed live integration may already have recorded the
+            # transaction's primary escalation before restart. Recovery has a
+            # distinct event identity so its more specific explanation does
+            # not conflict with the immutable original event payload.
+            _escalate(store, lease, task_id, transaction_id + "-recovery",
                       "approved task was not integrated because the host stopped before advancing the project branch")
             attention.append(task_id)
             backup.unlink(missing_ok=True)

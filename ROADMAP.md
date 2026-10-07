@@ -466,7 +466,9 @@ authorization; after activation, the system owns planning and task progression.
   - [x] Cover stale approvals, merge conflicts, failed post-integration gates,
     successful integration, and recovery after a simulated stop between ref
     advancement and PLAN restore.
-  - [ ] Cover a concurrent target-ref change during gate execution.
+  - [x] Cover a concurrent target-ref change during gate execution; the
+    integration race regression confirms the external ref is preserved and
+    interrupted recovery records a durable escalation.
 - [ ] Demonstrate unattended operation on a bounded representative task set
   starting from a project brief: generate/validate the plan, dispatch
   configured makers, run exact-SHA mechanical gates before independent review,

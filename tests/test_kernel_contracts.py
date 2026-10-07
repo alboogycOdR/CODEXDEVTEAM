@@ -6374,6 +6374,32 @@ class HostRecoveryAndIntegrationTests(unittest.TestCase):
                     )
             self.assertEqual(self._git(root, "rev-parse", "HEAD"), base_sha)
 
+            # A concurrent writer may advance the project ref while the
+            # post-merge gate is running. Integration must preserve that ref
+            # and leave a recoverable escalation instead of overwriting it.
+            concurrent_sha = self._git(
+                root, "commit-tree", f"{base_sha}^{{tree}}", "-p", base_sha,
+                "-m", "concurrent project update",
+            )
+            original_gate_run = gate_runner.run
+
+            def advance_project_ref_after_gate(*args, **kwargs):
+                result = original_gate_run(*args, **kwargs)
+                self._git(root, "update-ref", "refs/heads/main", concurrent_sha, base_sha)
+                return result
+
+            with patch.object(store, "verified_review_events", return_value=[approved_event]), \
+                 patch.object(gate_runner, "run", side_effect=advance_project_ref_after_gate):
+                with self.assertRaisesRegex(ValueError, "project checkout changed"):
+                    integrate_approved_task(
+                        config, store, lease, task_id, gate_runner, commands,
+                        expected_base_sha=base_sha,
+                    )
+            self.assertEqual(self._git(root, "rev-parse", "refs/heads/main"), concurrent_sha)
+            self._git(root, "update-ref", "refs/heads/main", base_sha, concurrent_sha)
+            self.assertEqual(recover_pending_integrations(config, store, lease), (task_id,))
+            self.assertEqual(self._git(root, "rev-parse", "HEAD"), base_sha)
+
             stale_approval = {"payload": dict(approved_event["payload"], sha="0" * 40)}
             with patch.object(store, "verified_review_events", return_value=[stale_approval]):
                 with self.assertRaisesRegex(ValueError, "differs from the independently approved SHA"):
