@@ -23,8 +23,8 @@ def normalize_repo_path(path: str) -> str:
     return candidate.as_posix()
 
 
-def _matches(path: str, pattern: str) -> bool:
-    """Match a path with segment-aware `*` and recursive `**` semantics."""
+def matches_repo_path(path: str, pattern: str) -> bool:
+    """Match a repository path with segment-aware `*` and recursive `**`."""
     path_parts = path.split("/")
     pattern_parts = pattern.split("/")
 
@@ -58,10 +58,10 @@ def decide_write(path: str, owned_paths: Iterable[str], *,
     if not actor_known:
         return TerritoryDecision(False, normalized, "unknown actor")
     protected = [normalize_repo_path(item) for item in protected_paths]
-    if any(_matches(normalized, pattern) for pattern in protected):
+    if any(matches_repo_path(normalized, pattern) for pattern in protected):
         return TerritoryDecision(False, normalized, "protected path")
     owned = [normalize_repo_path(item) for item in owned_paths]
-    if any(_matches(normalized, pattern) for pattern in owned):
+    if any(matches_repo_path(normalized, pattern) for pattern in owned):
         return TerritoryDecision(True, normalized, "within owned paths")
     return TerritoryDecision(False, normalized, "outside owned paths")
 
@@ -72,8 +72,8 @@ def validate_grant(path: str, *, allowed_patterns: Iterable[str],
     normalized = normalize_repo_path(path)
     allowed = [normalize_repo_path(item) for item in allowed_patterns]
     conflicts = [normalize_repo_path(item) for item in other_active_owners]
-    if any(_matches(normalized, pattern) for pattern in conflicts):
+    if any(matches_repo_path(normalized, pattern) for pattern in conflicts):
         return TerritoryDecision(False, normalized, "owned by another active task")
-    if any(_matches(normalized, pattern) for pattern in allowed):
+    if any(matches_repo_path(normalized, pattern) for pattern in allowed):
         return TerritoryDecision(True, normalized, "grant matches an allowed pattern")
     return TerritoryDecision(False, normalized, "grant is outside allowed patterns")

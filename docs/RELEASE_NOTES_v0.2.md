@@ -1,9 +1,11 @@
-# CODEXDEVTEAM v0.2 — Release Notes (Draft)
+# CODEXDEVTEAM v0.2 — Release Notes
 
-**Release status:** not ready for release. A three-task strict Windows
-qualification completed, but capacity was refreshed manually and an initial
-host defect required a safe park and restart. An uninterrupted unattended
-acceptance run and an automatic capacity source are still outstanding.
+**Release status:** not ready for release. These notes describe the current
+verified development state; they do not declare v0.2 complete or authorize a
+release. An uninterrupted three-task strict Windows acceptance run completed.
+Capacity was seeded manually before activation, and configured model spend is
+still unknown because no pricing rates were configured. An automatic capacity
+source and hosted CI for the latest uncommitted change remain outstanding.
 
 ## What v0.2 adds
 
@@ -32,6 +34,9 @@ acceptance run and an automatic capacity source are still outstanding.
 - Refuse integration while tracked project changes outside host-projected
   `PLAN.md` remain uncommitted, preserving configured framework files from the
   host's branch reset.
+- Allow project owners to configure narrow ignored-artifact patterns in the
+  protected verification policy. Matching ignored files are excluded from the
+  commit; other ignored paths still refuse the commit.
 - Report invocation usage and pilot metrics from recorded receipts. Missing
   usage and pricing remain unknown rather than being treated as zero.
 
@@ -50,15 +55,15 @@ acceptance run and an automatic capacity source are still outstanding.
 
 ## Current limits and release gates
 
-- A live three-task brief-to-integration qualification completed with strict
-  Codex maker/checker identities, exact-SHA gates, independent approvals, and
-  integration receipts. Its first host process parked after a PLAN integrity
-  defect; the workflow resumed after a local fix and completed. This is not an
-  uninterrupted unattended acceptance run.
-- The qualification recorded three approvals and integrations, no rework, and
-  no recorded escalation. It does not retain complete token usage or configured
-  spend for all invocations, and capacity snapshots were manually refreshed.
-  A connected automatic capacity source and complete pilot metrics remain open.
+- A live, uninterrupted three-task brief-to-integration run completed with
+  strict Codex maker/checker identities, exact-SHA gates, independent approvals,
+  and integration receipts. The host parked at its configured cycle bound and
+  released the HEAD lease after all tasks were done.
+- The pilot recorded three first-pass approvals, three passing gates, no gate
+  rejections, no rework, and no escalations. All six calls retained input and
+  output token counts. Configured spend remains unknown, and capacity was
+  manually seeded once before activation; a connected automatic capacity source
+  is still a release blocker.
   Optional fast-tier routing remains disabled until representative evidence
   supports enabling it.
 - Restarted tasks are escalated and left for deliberate operator review; the
@@ -69,11 +74,8 @@ acceptance run and an automatic capacity source are still outstanding.
 
 ## Verification recorded during development
 
-- Windows PowerShell full suite: **294 tests passed, 8 skipped** on 2026-10-07,
-  including PLAN-integrity and tracked-configuration integration regressions.
-- Hosted `kernel-ci` run [37664978715](https://github.com/alboogycOdR/CODEXDEVTEAM/actions/runs/37664978715)
-  passed for pushed commit `9d8d693`, including the PLAN-integrity and
-  tracked-configuration integration regressions.
-
-These notes describe the current development state. They do not declare v0.2
-complete or authorize release.
+- Windows PowerShell full suite: **295 tests passed, 8 skipped** on 2026-10-07,
+  including the configured ignored-artifact allowlist regression.
+- The latest hosted CI pass remains run [37665543445](https://github.com/alboogycOdR/CODEXDEVTEAM/actions/runs/37665543445)
+  for commit `f178b5403f6769891ac811480626c551a909e31c`; the current local
+  changes have not yet been pushed or covered by hosted CI.

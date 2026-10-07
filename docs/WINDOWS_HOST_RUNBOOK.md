@@ -20,6 +20,11 @@ supported for supervised builder execution.
 3. Configure concrete `build`, `typecheck`, and `test_full` argv arrays and
    `strict_supervision: true` in
    `.codexdevteam/framework/verification.json`.
+   If those commands create ignored build artifacts inside task worktrees,
+   add narrowly scoped repository-relative patterns to
+   `ignored_paths_allowlist`. Matching ignored paths are excluded from the
+   host commit; all other ignored paths still refuse the commit. Do not use
+   broad patterns or patterns that cover `.git` or `.codexdevteam`.
 4. Create the host control directory and copy its schema template:
 
    ```powershell

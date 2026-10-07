@@ -23,7 +23,7 @@ from pathlib import Path, PurePosixPath
 
 from .protocol import TaskRecord
 from .secrets import find_secrets
-from .territory import decide_write, normalize_repo_path
+from .territory import decide_write, matches_repo_path, normalize_repo_path
 
 
 _HOST_NAME = "CODEXDEVTEAM Host"
@@ -108,7 +108,8 @@ class HostCommitResult:
 
 def validate_owned_retry_worktree(repository: str | Path, worktree: str | Path,
                                   task: TaskRecord, *, task_branch: str,
-                                  expected_parent: str) -> tuple[str, ...]:
+                                  expected_parent: str,
+                                  ignored_allowlist: tuple[str, ...] = ()) -> tuple[str, ...]:
     """Revalidate an internally authorized retry worktree before launching a maker."""
     repo = Path(repository).expanduser().resolve()
     tree = Path(worktree).expanduser().resolve()
@@ -118,7 +119,8 @@ def validate_owned_retry_worktree(repository: str | Path, worktree: str | Path,
     _reject_external_filters(git_dir)
     core_options = _effective_core_options(git_dir)
     base = _read_parent_tree(git_dir, repo, expected_parent)
-    limits = CommitLimits(ignored_allowlist=(".codexdevteam/control",), settle_seconds=0)
+    limits = CommitLimits(ignored_allowlist=(".codexdevteam/control",
+                                             *ignored_allowlist), settle_seconds=0)
     snapshot = _capture_snapshot(tree, base, task, git_dir, repo, expected_parent, limits,
                                  limits.ignored_allowlist, core_options)
     outside = tuple(path for path in snapshot.changed
@@ -138,7 +140,8 @@ def validate_owned_retry_worktree(repository: str | Path, worktree: str | Path,
 def quarantine_out_of_scope_changes(repository: str | Path, worktree: str | Path,
                                     task: TaskRecord, *, task_branch: str,
                                     expected_parent: str, invocation_id: str,
-                                    paths: tuple[str, ...]) -> tuple[Path, tuple[str, ...]]:
+                                    paths: tuple[str, ...],
+                                    ignored_allowlist: tuple[str, ...] = ()) -> tuple[Path, tuple[str, ...]]:
     """Preserve and restore only refused out-of-scope files in host-owned Git metadata."""
     repo = Path(repository).expanduser().resolve()
     tree = Path(worktree).expanduser().resolve()
@@ -147,7 +150,8 @@ def quarantine_out_of_scope_changes(repository: str | Path, worktree: str | Path
     _check_branch_name(git_dir, task_branch, task.task_id)
     base = _read_parent_tree(git_dir, repo, expected_parent)
     core_options = _effective_core_options(git_dir)
-    limits = CommitLimits(ignored_allowlist=(".codexdevteam/control",), settle_seconds=0)
+    limits = CommitLimits(ignored_allowlist=(".codexdevteam/control",
+                                             *ignored_allowlist), settle_seconds=0)
     snapshot = _capture_snapshot(tree, base, task, git_dir, repo, expected_parent, limits,
                                  limits.ignored_allowlist, core_options)
     refused = tuple(sorted(set(paths)))
@@ -887,7 +891,8 @@ def _validate_path_form(path: str) -> None:
 
 
 def _allowed_ignored(path: str, allowlist: tuple[str, ...]) -> bool:
-    return any(path == item or path.startswith(item.rstrip("/") + "/") for item in allowlist)
+    return any(path == item or path.startswith(item.rstrip("/") + "/")
+               or matches_repo_path(path, item) for item in allowlist)
 
 
 def _check_case_aliases(changed: tuple[str, ...], observed_paths: tuple[str, ...],

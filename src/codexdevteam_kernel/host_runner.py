@@ -496,7 +496,8 @@ def run_configured_host_loop(config: WindowsHostConfig,
             SupervisorPolicy(role=config.maker_role,
                              require_strict=config.require_strict,
                              require_capacity_observation=config.require_capacity_observation,
-                             task_class_policy=bindings.task_class_policy),
+                             task_class_policy=bindings.task_class_policy,
+                             ignored_paths_allowlist=bindings.ignored_paths_allowlist),
         )
         gate_runner = GateRunner(
             config.project_root, config.project_root / ".codexdevteam" / "gates",

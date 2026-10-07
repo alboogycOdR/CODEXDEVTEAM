@@ -6271,6 +6271,7 @@ class HostRoutingPolicyTests(unittest.TestCase):
                 "commands": {name: ["python", "-c", "pass"]
                              for name in ("build", "typecheck", "test_full")},
                 "environment_allowlist": [],
+                "ignored_paths_allowlist": ["**/__pycache__", "**/__pycache__/**"],
             }), encoding="utf-8")
             routing_path = root / ".codexdevteam" / "framework" / "task-routing.json"
             routing_path.write_text(json.dumps({
@@ -6284,9 +6285,16 @@ class HostRoutingPolicyTests(unittest.TestCase):
                 "roles": {"critical": "implementation"},
             }), encoding="utf-8")
             bindings = load_host_runtime(config)
+            self.assertEqual(bindings.ignored_paths_allowlist,
+                             ("**/__pycache__", "**/__pycache__/**"))
             self.assertEqual(bindings.task_class_policy.floor_for("critical"), "frontier")
             self.assertEqual(bindings.task_class_policy.role_for(
                 "critical", fallback="implementation"), "implementation")
+            verification = json.loads(config.verification_config.read_text(encoding="utf-8"))
+            verification["ignored_paths_allowlist"] = ["**"]
+            config.verification_config.write_text(json.dumps(verification), encoding="utf-8")
+            with self.assertRaisesRegex(ValueError, "must be narrow"):
+                load_host_runtime(config)
 
 
 class HostRecoveryAndIntegrationTests(unittest.TestCase):

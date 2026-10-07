@@ -272,6 +272,10 @@ active runtime fails closed until an adapter is explicitly implemented. Loading
 these bindings launches nothing and acquires no lease. Host policy identifies
 maker and checker roles explicitly; the checker must use the kernel's supported
 `reviewer` or `judgment` role and an independent configured runtime/model.
+Verification policy may also name narrowly scoped ignored-path patterns for
+generated artifacts such as Python bytecode. Those matching ignored paths are
+excluded from the host commit after quiescence; unlisted ignored paths still
+refuse the whole commit. Broad patterns and Git/host metadata are rejected.
 The closeout API accepts a checker-prompt builder evaluated only after the
 mechanical gate passes, so the prompt can include the gate's actual SHA and
 fingerprint.

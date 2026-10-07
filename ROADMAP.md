@@ -474,12 +474,16 @@ authorization; after activation, the system owns planning and task progression.
   - [x] Cover a concurrent target-ref change during gate execution; the
     integration race regression confirms the external ref is preserved and
     interrupted recovery records a durable escalation.
-- [ ] Demonstrate unattended operation on a bounded representative task set
+- [x] Demonstrate unattended operation on a bounded representative task set
   starting from a project brief: generate/validate the plan, dispatch
   configured makers, run exact-SHA mechanical gates before independent review,
   integrate accepted work, recover or escalate on failures, respect
   budgets/timeouts, and reach a defined terminal state without an operator
   advancing each task.
+  - [x] Complete one uninterrupted Windows run from a fresh brief through
+    three task integrations using strict Codex maker/checker identities. All
+    tasks were approved on first review; the host parked and released its lease
+    at its configured cycle bound. Record the evidence in `docs/RUNTIME_SMOKE.md`.
 - [x] Record live strict-verification evidence for every builder enabled in
   the pilot, bound to its runtime and configured model. Do not infer a model's
   capabilities from another model's receipt.
@@ -495,6 +499,11 @@ authorization; after activation, the system owns planning and task progression.
   recovery outcomes, elapsed time, and configured model spend from verified
   standalone pilot receipts. Keep optional fast-tier routing disabled until representative
   redacted field logs show the agreed accuracy threshold.
+  - [x] The uninterrupted pilot recorded 3/3 first-pass approvals, 3 passed
+    gates, 0 gate rejections, 0 changes requested, 0 escalations, 0 active
+    invocations at close, elapsed time, and token usage for all 6 model calls.
+    Configured spend remains unknown because no pricing rates were configured;
+    see `docs/RUNTIME_SMOKE.md`.
   - [x] Record three approved reviews, three passing task gates, three
     integrations, zero rework, zero recorded escalations, and the host restart
     after the PLAN-integrity defect in the 2026-10-07 qualification. Invocation
@@ -504,8 +513,9 @@ authorization; after activation, the system owns planning and task progression.
   (branch-head run [37610157137](https://github.com/alboogycOdR/CODEXDEVTEAM/actions/runs/37610157137)).
 - [ ] Publish v0.2 release notes that state proven behavior, enabled runtimes,
   host limitations, recovery steps, and any remaining parity gaps.
-  - [x] Draft release notes from current repository evidence; finalize them
-    after the bounded live pilot and strict-worker receipts.
+  - [x] Finalize release notes against the bounded live pilot, strict-worker
+    receipts, and latest hosted CI evidence. Publication remains part of the
+    v0.2 release decision.
 
 ### v0.2 release gates
 

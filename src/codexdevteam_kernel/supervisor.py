@@ -33,6 +33,7 @@ from .lease_guard import HeadLeaseGuard
 from .review import parse_review_verdict
 from .state import HeadLease, LeaseError, StateStore
 from .tasks import TaskState
+from .territory import normalize_repo_path
 from .worktrees import GitWorktreeManager
 
 
@@ -56,6 +57,7 @@ class SupervisorPolicy:
     task_class_policy: TaskClassPolicy | None = None
     invocation_stale_after_seconds: float = 60.0
     plan_archive_interval_seconds: float | None = None
+    ignored_paths_allowlist: tuple[str, ...] = ()
 
     def __post_init__(self) -> None:
         if not isinstance(self.role, str) or not self.role.strip():
@@ -82,6 +84,12 @@ class SupervisorPolicy:
                      or not math.isfinite(self.plan_archive_interval_seconds)
                      or self.plan_archive_interval_seconds <= 0)):
             raise ValueError("plan_archive_interval_seconds must be null or finite and positive")
+        if (not isinstance(self.ignored_paths_allowlist, tuple)
+                or any(not isinstance(path, str) or not path.strip()
+                       for path in self.ignored_paths_allowlist)):
+            raise ValueError("ignored_paths_allowlist must be a tuple of non-empty path patterns")
+        for path in self.ignored_paths_allowlist:
+            normalize_repo_path(path)
 
 
 @dataclass(frozen=True, slots=True)
@@ -1130,6 +1138,7 @@ class Supervisor:
                     worktrees.repository, worktree, task,
                     task_branch=f"codexdevteam/{task.task_id}",
                     expected_parent=worktree_info.head,
+                    ignored_allowlist=self.policy.ignored_paths_allowlist,
                 )
             except Exception as exc:
                 self.store.transition_task(
@@ -1236,7 +1245,8 @@ class Supervisor:
                     invocation_id=invocation_id,
                     quiescence=proof,
                     limits=CommitLimits(
-                        ignored_allowlist=(".codexdevteam/control",)),
+                        ignored_allowlist=(".codexdevteam/control",
+                                           *self.policy.ignored_paths_allowlist)),
                 )
             else:
                 commit_result = HostCommitResult(
@@ -1277,6 +1287,7 @@ class Supervisor:
                         task_branch=f"codexdevteam/{task.task_id}",
                         expected_parent=worktree_info.head, invocation_id=invocation_id,
                         paths=commit_result.paths,
+                        ignored_allowlist=self.policy.ignored_paths_allowlist,
                     )
                     retryable_ownership_refusal = True
                 except Exception as exc:

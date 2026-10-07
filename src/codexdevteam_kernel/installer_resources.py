@@ -25,6 +25,7 @@ def default_framework_files() -> dict[str, str]:
         "protected_paths": ["PLAN.md", ".codexdevteam/**"],
         "commands": {"build": None, "typecheck": None, "test_full": None},
         "environment_allowlist": [],
+        "ignored_paths_allowlist": [],
         "strict_supervision": False,
     }
     task_routing = {

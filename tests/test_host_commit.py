@@ -138,6 +138,27 @@ class HostCommitTests(unittest.TestCase):
         result = self.commit(task=self.make_task(("src/**", ".gitignore")))
         self.assert_refused(result, "IGNORED_PATH")
 
+    def test_explicit_recursive_ignored_allowlist_excludes_python_cache_from_commit(self):
+        (self.worktree / ".gitignore").write_text("**/__pycache__/\n")
+        cache = self.worktree / "src" / "package" / "__pycache__"
+        cache.mkdir(parents=True)
+        (cache / "module.cpython-312.pyc").write_bytes(b"compiled cache")
+        (self.worktree / "src" / "modify.txt").write_text("after\n")
+
+        result = self.commit(
+            task=self.make_task(("src/**", ".gitignore")),
+            limits=CommitLimits(
+                ignored_allowlist=("**/__pycache__", "**/__pycache__/**"),
+                settle_seconds=0,
+            ),
+        )
+
+        self.assertEqual(result.status, "committed", result.reasons)
+        self.assertEqual(result.paths, (".gitignore", "src/modify.txt"))
+        committed_paths = self.git("-C", str(self.repo), "ls-tree", "-r", "--name-only",
+                                   result.sha).splitlines()
+        self.assertNotIn("src/package/__pycache__/module.cpython-312.pyc", committed_paths)
+
     @unittest.skipIf(os.name == "nt", "POSIX symlink case")
     def test_symlink_in_owned_path_refuses(self):
         (self.worktree / "src" / "link").symlink_to(self.worktree / "src" / "modify.txt")

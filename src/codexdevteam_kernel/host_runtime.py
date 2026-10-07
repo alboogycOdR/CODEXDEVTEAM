@@ -11,6 +11,7 @@ from .host_config import WindowsHostConfig, _reject_duplicate_keys
 from .registry import WorkerRegistry
 from .runtime import CodexExecAdapter
 from .supervisor import InvocationAdapter
+from .territory import normalize_repo_path
 
 
 @dataclass(frozen=True, slots=True)
@@ -21,6 +22,7 @@ class HostRuntimeBindings:
     protected_paths: tuple[str, ...]
     environment_allowlist: tuple[str, ...]
     task_class_policy: TaskClassPolicy
+    ignored_paths_allowlist: tuple[str, ...]
 
 
 def load_host_runtime(config: WindowsHostConfig, *,
@@ -93,7 +95,8 @@ def load_host_runtime(config: WindowsHostConfig, *,
 
     verification = _read_object(config.verification_config, "verification policy")
     allowed = {"protocol_version", "protected_paths", "commands",
-               "environment_allowlist", "strict_supervision"}
+               "environment_allowlist", "strict_supervision",
+               "ignored_paths_allowlist"}
     unknown = set(verification) - allowed
     if unknown:
         raise ValueError("unknown verification policy fields: " + ", ".join(sorted(unknown)))
@@ -109,6 +112,22 @@ def load_host_runtime(config: WindowsHostConfig, *,
     if (not isinstance(environment, list)
             or not all(isinstance(item, str) and item.strip() for item in environment)):
         raise ValueError("verification policy environment_allowlist must be a string array")
+    ignored_paths = verification.get("ignored_paths_allowlist", [])
+    if (not isinstance(ignored_paths, list)
+            or not all(isinstance(item, str) and item.strip() for item in ignored_paths)):
+        raise ValueError("verification policy ignored_paths_allowlist must be a string array")
+    try:
+        ignored_paths_allowlist = tuple(normalize_repo_path(item) for item in ignored_paths)
+    except ValueError as exc:
+        raise ValueError("verification policy ignored_paths_allowlist has an unsafe path pattern") from exc
+    for pattern in ignored_paths_allowlist:
+        parts = pattern.split("/")
+        if (not any(not any(symbol in part for symbol in "*?[") for part in parts)
+                or any(part.casefold() == ".git" for part in parts)
+                or parts[0].casefold() == ".codexdevteam"):
+            raise ValueError("ignored path patterns must be narrow and cannot cover Git or host metadata")
+    if len(set(ignored_paths_allowlist)) != len(ignored_paths_allowlist):
+        raise ValueError("verification policy ignored_paths_allowlist cannot contain duplicates")
     raw_commands = verification.get("commands")
     required_commands = {"build", "typecheck", "test_full"}
     if not isinstance(raw_commands, dict) or set(raw_commands) != required_commands:
@@ -120,7 +139,8 @@ def load_host_runtime(config: WindowsHostConfig, *,
             raise ValueError(f"verification command {name} must be a non-empty argv array")
         commands[name] = tuple(argv)
     return HostRuntimeBindings(registry, adapters, commands, tuple(protected),
-                               tuple(environment), task_class_policy)
+                               tuple(environment), task_class_policy,
+                               ignored_paths_allowlist)
 
 
 def build_gate_runner(project_root: str | Path, config: WindowsHostConfig,

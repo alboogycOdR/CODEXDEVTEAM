@@ -688,3 +688,50 @@ for strict mode until those capabilities are verified without the bypass.
 - Supported supervised maker commits are Windows-only. Ubuntu/Windows hosted
   CI covers the portable contract suite; Linux maker commits fail closed because
   the supervisor currently requires a verified Windows Job Object proof.
+
+## Uninterrupted strict fresh-brief acceptance — 2026-10-07
+
+- Project: `C:\Users\Nuburo\AppData\Local\Temp\CODEXDEVTEAM-v02-unattended-final-20261007`.
+  It was initialized as a fresh disposable Git project, installed inactive,
+  configured with strict workers and protected verification policy, and run
+  through one `host-run --brief` process. The Codex planner generated and
+  validated `PLAN.md`; host bootstrap seeded task state; explicit confirmation
+  activated one HEAD lease.
+- The run used one strict maker identity, `codex-maker-gpt61` / `codex` /
+  `gpt-6.1-sol`, and a distinct strict checker identity,
+  `codex-reviewer-gpt6` / `codex` / `gpt-6-sol`. All three planned tasks
+  completed maker execution, host-owned commit after Windows Job Object
+  quiescence, exact-SHA gate, independent checker approval, and branch
+  integration. The integrated SHAs were `aa8ea750daa48eb4448200d36e40e316790fcec1`
+  (`TASK-1`), `3fbf87d2e512c00a2b281e34c27e70673b9c0692` (`TASK-2`), and
+  `ac1eab2de9337acb02712f1021cc66c1c3879626` (`TASK-3`).
+- Verified pilot metrics: 3 reviewed tasks, 3 first-pass approvals (100%),
+  3 review sessions, 3 passed gates, 0 gate rejections, 0 changes requested,
+  0 escalations, 0 interrupted/recovery invocations, and 0 live maker
+  invocations at close. All six maker/checker receipts recorded token usage:
+  727,363 input tokens, 11,273 output tokens, and 645,632 cached input tokens
+  in aggregate. Invocation pricing was not configured, so model spend remains
+  unknown. Total time from plan generation through final integration and park
+  was about 9m25s.
+- One manually written capacity snapshot was seeded before activation from the
+  current account-level Codex usage status. It was not refreshed during the run;
+  its one-hour freshness window was still valid at close. Per-model quota was
+  unknown (`quota_remaining` was null). This proves an uninterrupted workflow
+  under an initial manual observation, not a connected automatic capacity
+  source or per-model capacity measurement.
+- The host completed 50 bounded cycles with every task done, then parked and
+  released the HEAD lease. `host-status` confirmed `lease_active: false`, all
+  three tasks `done`, and no running maker. The project main branch contains all
+  three integrations; its generated `PLAN.md` remains untracked at the disposable
+  project root, while runtime state and capacity files are ignored.
+- The two earlier attempts on this disposable fixture were excluded from
+  acceptance: the first fixture lacked a Python bytecode cache policy, and the
+  second was correctly refused because ignored `__pycache__` paths were not
+  allowlisted. CODEXDEVTEAM now accepts only owner-configured narrow ignored
+  patterns in its protected verification policy; matching ignored paths are
+  excluded from the commit, and other ignored paths still refuse it. The final
+  acceptance run used `**/__pycache__` and `**/__pycache__/**`.
+- Local Windows PowerShell full suite after this policy change: **295 passed,
+  8 skipped**. Hosted CI has not yet run against the current uncommitted source
+  changes; the last hosted pass is run [37665543445](https://github.com/alboogycOdR/CODEXDEVTEAM/actions/runs/37665543445)
+  for commit `f178b5403f6769891ac811480626c551a909e31c`.
