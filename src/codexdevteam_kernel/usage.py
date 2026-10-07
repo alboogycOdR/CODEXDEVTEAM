@@ -42,6 +42,8 @@ class InvocationSummary:
     input_tokens: int | None
     output_tokens: int | None
     cached_input_tokens: int | None
+    token_usage_complete: bool
+    unmetered_token_invocations: int
     metered_invocations: int
     unmetered_invocations: int
     cost_usd: float | None
@@ -86,6 +88,11 @@ class PilotMetrics:
     gate_rejection_rate: float | None
     maker_invocations: int
     checker_invocations: int
+    input_tokens: int | None
+    output_tokens: int | None
+    cached_input_tokens: int | None
+    token_usage_complete: bool
+    unmetered_token_invocations: int
     known_spend_usd: float
     unmetered_invocations: int
     spend_complete: bool
@@ -123,6 +130,8 @@ def measure_pilot(store: object, *, rates: tuple[UsageRate, ...] = ()) -> PilotM
     checker_invocations = sum(row.invocations for row in summaries if row.purpose == "checker")
     all_invocations = sum(row.invocations for row in summaries)
     unmetered = sum(row.unmetered_invocations for row in summaries)
+    token_usage_complete = all(row.token_usage_complete for row in summaries)
+    unmetered_token_invocations = sum(row.unmetered_token_invocations for row in summaries)
     known_spend = sum(row.cost_usd or 0.0 for row in summaries)
     task_count = len(by_task)
     return PilotMetrics(
@@ -136,6 +145,14 @@ def measure_pilot(store: object, *, rates: tuple[UsageRate, ...] = ()) -> PilotM
         gate_rejection_rate=failed_gates / gate_count if gate_count else None,
         maker_invocations=maker_invocations,
         checker_invocations=checker_invocations,
+        input_tokens=(sum(row.input_tokens or 0 for row in summaries)
+                      if token_usage_complete else None),
+        output_tokens=(sum(row.output_tokens or 0 for row in summaries)
+                       if token_usage_complete else None),
+        cached_input_tokens=(sum(row.cached_input_tokens or 0 for row in summaries)
+                             if token_usage_complete else None),
+        token_usage_complete=token_usage_complete,
+        unmetered_token_invocations=unmetered_token_invocations,
         known_spend_usd=round(known_spend, 12),
         unmetered_invocations=unmetered,
         spend_complete=all_invocations == 0 or unmetered == 0,
@@ -161,6 +178,7 @@ def summarize_invocations(events: Iterable[Mapping], *,
                                        "duration": 0.0, "input": 0, "input_seen": 0,
                                        "output": 0, "output_seen": 0,
                                        "cached": 0, "cached_seen": 0,
+                                       "token_unmetered": 0,
                                        "metered": 0, "unmetered": 0, "cost": 0.0,
                                        "review_approved": 0, "review_changes_requested": 0,
                                        "review_rejected": 0, "first_pass_approved": 0})
@@ -171,12 +189,17 @@ def summarize_invocations(events: Iterable[Mapping], *,
         duration = payload.get("duration_seconds")
         if isinstance(duration, (int, float)) and not isinstance(duration, bool) and math.isfinite(duration):
             row["duration"] += max(0.0, duration)
+        token_fields_complete = True
         for name, counter in (("input_tokens", "input"), ("output_tokens", "output"),
                               ("cached_input_tokens", "cached")):
             value = payload.get(name)
             if isinstance(value, int) and not isinstance(value, bool) and value >= 0:
                 row[counter] += value
                 row[counter + "_seen"] += 1
+            else:
+                token_fields_complete = False
+        if not token_fields_complete:
+            row["token_unmetered"] += 1
         cost = payload.get("reported_cost_usd")
         if cost is None:
             started = payload.get("started_at")
@@ -243,6 +266,10 @@ def summarize_invocations(events: Iterable[Mapping], *,
         input_tokens=row["input"] if row["input_seen"] else None,
         output_tokens=row["output"] if row["output_seen"] else None,
         cached_input_tokens=row["cached"] if row["cached_seen"] else None,
+        token_usage_complete=(row["input_seen"] == row["invocations"]
+                              and row["output_seen"] == row["invocations"]
+                              and row["cached_seen"] == row["invocations"]),
+        unmetered_token_invocations=row["token_unmetered"],
         metered_invocations=row["metered"], unmetered_invocations=row["unmetered"],
         cost_usd=round(row["cost"], 12) if row["metered"] else None,
         review_approved=row["review_approved"],
@@ -350,7 +377,8 @@ def _ensure_group(grouped: dict, key: tuple[str, str, str, str]) -> None:
                              "timed_out": 0, "launch_failed": 0,
                              "duration": 0.0, "input": 0, "input_seen": 0,
                              "output": 0, "output_seen": 0, "cached": 0,
-                             "cached_seen": 0, "metered": 0, "unmetered": 0,
+                             "cached_seen": 0, "token_unmetered": 0,
+                             "metered": 0, "unmetered": 0,
                              "cost": 0.0, "review_approved": 0,
                              "review_changes_requested": 0, "review_rejected": 0,
                              "first_pass_approved": 0})

@@ -2993,6 +2993,9 @@ class FreshProjectPilotTests(unittest.TestCase):
                               metrics.review_sessions, metrics.gate_attempts,
                               metrics.gate_rejections, metrics.checker_invocations),
                              (1, 1, 1, 1, 0, 1))
+            self.assertFalse(metrics.token_usage_complete)
+            self.assertEqual(metrics.unmetered_token_invocations, 1)
+            self.assertIsNone(metrics.input_tokens)
             self.assertFalse(metrics.spend_complete)
 
 
@@ -6013,6 +6016,8 @@ class UsageReportingTests(unittest.TestCase):
         self.assertEqual(result.succeeded, 1)
         self.assertEqual(result.timed_out, 1)
         self.assertEqual(result.input_tokens, 100)
+        self.assertFalse(result.token_usage_complete)
+        self.assertEqual(result.unmetered_token_invocations, 1)
         self.assertEqual(result.duration_seconds, 42.5)
         self.assertEqual(result.metered_invocations, 1)
         self.assertEqual(result.unmetered_invocations, 1)

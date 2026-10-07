@@ -48,5 +48,9 @@ caller-supplied and the result is measurement only; it never changes routing.
 review events with invocation summaries. It reports reviewed tasks, first-pass
 approval rate, checker review sessions, changes requested, gate rejection rate,
 maker/checker invocation totals, known spend, unmetered calls, and whether
-spend is complete. Rates remain explicit; missing usage or pricing keeps the
-spend result marked incomplete rather than treating it as zero-cost.
+spend is complete. Aggregate input/output/cached-input token totals are returned
+only when every invocation receipt includes all three counters; otherwise those
+totals are `null`, `token_usage_complete` is false, and
+`unmetered_token_invocations` identifies the receipts with incomplete token
+telemetry. Rates remain explicit; missing usage or pricing keeps the spend
+result marked incomplete rather than treating it as zero-cost.
