@@ -480,8 +480,9 @@ authorization; after activation, the system owns planning and task progression.
   recovery outcomes, elapsed time, and configured model spend from verified
   standalone pilot receipts. Keep optional fast-tier routing disabled until representative
   redacted field logs show the agreed accuracy threshold.
-- [ ] Pass release CI on Windows with the supported Python versions; Linux
-  remains compatibility CI only and is not part of supervised maker execution.
+- [x] Pass release CI on Windows with the supported Python versions; Linux
+  remains compatibility CI only and is not part of supervised maker execution
+  (branch-head run [37610157137](https://github.com/alboogycOdR/CODEXDEVTEAM/actions/runs/37610157137)).
 - [ ] Publish v0.2 release notes that state proven behavior, enabled runtimes,
   host limitations, recovery steps, and any remaining parity gaps.
 
