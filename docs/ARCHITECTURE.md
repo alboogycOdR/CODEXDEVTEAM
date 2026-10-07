@@ -252,10 +252,15 @@ mandatory. This is configuration groundwork only:
 `codexdevteam host-config --project <path>` validates and prints the inactive
 configuration without creating state or acquiring HEAD. `codexdevteam host-run`
 requires `--confirm-activation`, an existing initialized task database, and
-fresh configuration; it only activates fresh projects. The config points to a
-versioned capacity snapshot; its loader rejects stale-format data, future
-timestamps, unknown workers/fields, and malformed availability before
-dispatch. The snapshot producer remains an explicit host integration.
+fresh configuration; it only activates fresh projects. The default
+`capacity_source` reads the local Codex app-server's read-only
+`account/rateLimits/read` API before activation and on each dispatch cycle. It
+accepts only the unambiguous shared `codex` quota bucket and refuses missing,
+model-specific, or unknown buckets. A versioned timestamped JSON snapshot is
+still available as an explicit `capacity_source: "snapshot"` compatibility
+mode; its loader rejects stale-format data, future timestamps, unknown workers
+or fields, and malformed availability. Neither source bypasses dispatch
+freshness and quota checks.
 `codexdevteam host-bootstrap` creates the parked task database from the exact
 PLAN hash under a temporary lease. It imports only pending/blocked unassigned
 tasks and archived IDs; in-progress, needs-review, and completed task records
@@ -306,10 +311,12 @@ interrupted tasks, preserves their branches, and parks before further dispatch.
 The host-specific DEVDEPARTMENT fence remains outstanding. An embedding host
 can call `park_configured_host()` under the same lease for the same
 graceful-stop behavior.
-`codexdevteam host-preflight --project <path>` checks the bindings and
-timestamped capacity snapshot without activating, dispatching, or creating
+`codexdevteam host-preflight --project <path>` checks the bindings and queries
+the configured capacity source without activating, dispatching, or creating
 state. Its output is worker/capacity readiness evidence only and does not
-constitute activation or pilot evidence.
+constitute activation or pilot evidence. The Codex app-server query is bounded
+by a timeout and fails closed when account auth, the API, or a known shared
+quota window is unavailable.
 Native PowerShell setup and operation steps, including current recovery and
 handover limits, are recorded in `docs/WINDOWS_HOST_RUNBOOK.md`.
 `codexdevteam host-status --project <path>` reads mode, lease, liveness, and

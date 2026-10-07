@@ -50,6 +50,7 @@ class WindowsHostConfig:
     activation_state: str = "parked"
     require_strict: bool = True
     require_capacity_observation: bool = True
+    capacity_source: str = "codex_app_server"
 
     @classmethod
     def from_dict(cls, project_root: str | Path, data: dict[str, Any]
@@ -62,7 +63,7 @@ class WindowsHostConfig:
             "logs_root", "system_id", "instance_id", "maker_role", "checker_role",
             "poll_interval_seconds", "lease_ttl_seconds",
             "max_cycles_per_process", "max_rework_attempts", "require_strict",
-            "require_capacity_observation",
+            "require_capacity_observation", "capacity_source",
         }
         unknown = set(data) - allowed
         if unknown:
@@ -133,6 +134,10 @@ class WindowsHostConfig:
             raise ValueError("Windows unattended host configuration requires strict workers")
         if not boolean("require_capacity_observation", True):
             raise ValueError("Windows unattended host configuration requires fresh capacity observations")
+        capacity_source = data.get("capacity_source", "codex_app_server")
+        if (not isinstance(capacity_source, str)
+                or capacity_source not in {"codex_app_server", "snapshot"}):
+            raise ValueError("capacity_source must be 'codex_app_server' or 'snapshot'")
         return cls(
             project_root=root,
             **resolved,
@@ -146,6 +151,7 @@ class WindowsHostConfig:
             max_rework_attempts=bounded_int("max_rework_attempts", 1, 0, 5),
             require_strict=True,
             require_capacity_observation=True,
+            capacity_source=capacity_source,
         )
 
     @classmethod
@@ -190,6 +196,7 @@ class WindowsHostConfig:
             "max_rework_attempts": self.max_rework_attempts,
             "require_strict": self.require_strict,
             "require_capacity_observation": self.require_capacity_observation,
+            "capacity_source": self.capacity_source,
         }
 
     def load_capacity_observations(self, *, now: float | None = None

@@ -11,7 +11,8 @@ from threading import Event
 
 from .gate import GateRunner
 from .host_config import WindowsHostConfig
-from .host_runtime import HostRuntimeBindings, load_host_runtime
+from .host_runtime import (HostRuntimeBindings, load_host_runtime,
+                           load_runtime_capacity)
 from .onboarding import OnboardingMode, inspect_project
 from .plan_markdown import parse_plan_markdown
 from .prompts import render_checker_prompt, render_maker_prompt
@@ -144,7 +145,7 @@ def activate_fresh_host(config: WindowsHostConfig, store: StateStore, *, confirm
         raise ValueError("project marker is not an inactive fresh-project installation")
     if store.get_supervisor_mode().get("mode") != "parked":
         raise ValueError("supervisor must be parked before activation")
-    observations = config.load_capacity_observations()
+    observations = load_runtime_capacity(config, bindings)
     active_ids = set(bindings.registry.active)
     if not active_ids or not active_ids.issubset(observations):
         raise ValueError("activation requires capacity observations for every active worker")
@@ -202,7 +203,7 @@ def build_host_cycle_inputs(config: WindowsHostConfig, bindings: HostRuntimeBind
     pending = [task for task in store.list_tasks() if task.state.value == "pending"]
     prompts = {task.task_id: render_maker_prompt(task) for task in pending}
     invocation_ids = {task.task_id: "maker-" + uuid.uuid4().hex for task in pending}
-    capacity = config.load_capacity_observations()
+    capacity = load_runtime_capacity(config, bindings)
     active = set(bindings.registry.active)
     missing = sorted(active - set(capacity))
     unknown = sorted(set(capacity) - set(bindings.registry.defined))
@@ -304,11 +305,16 @@ def closeout_host_cycle(supervisor: Supervisor, lease: HeadLease,
         if worker.identity.role == config.checker_role
         or (config.checker_role == "reviewer" and worker.identity.role == "judgment")
     ]
-    if not checker_candidates:
-        raise ValueError("no active checker worker matches configured checker_role")
     closeouts: list[MakerCloseoutResult] = []
     worktrees = GitWorktreeManager(config.project_root, config.worktree_root)
     for maker in result.makers:
+        if (maker.host_commit is None or maker.host_commit.status != "committed"
+                or not maker.host_commit.sha):
+            # Preserve the unresolved task for the continuous runner's durable
+            # closeout-incomplete event. A gate must never run without a commit.
+            continue
+        if not checker_candidates:
+            raise ValueError("no active checker worker matches configured checker_role")
         current_maker = maker
         for rework_number in range(config.max_rework_attempts + 1):
             task = supervisor.store.get_task(current_maker.task_id)

@@ -5,27 +5,47 @@ supported for supervised builder execution.
 
 ## Prepare an inactive fresh project
 
-1. Install CODEXDEVTEAM metadata without activating a HEAD:
+1. Create a Git repository and commit a baseline before supervised
+   activation. The host needs a verifiable `HEAD` as the parent for task
+   worktrees and the compare-and-swap integration boundary. `host-run --brief`
+   may create `PLAN.md`, but it cannot create the repository's first commit.
+2. Install CODEXDEVTEAM metadata without activating a HEAD:
 
    ```powershell
    codexdevteam init --project C:\Projects\MyProject
    ```
 
-2. Configure `.codexdevteam/framework/registry.template.json` with strict,
+3. Configure `.codexdevteam/framework/registry.template.json` with strict,
    live-verified worker identities. Use distinct maker and `reviewer` (or
    `judgment`) roles with different configured runtime/model identities. The
    host currently binds the Codex CLI runtime only. Commit tracked framework
    configuration before activation; integration refuses to advance the project
    ref while tracked configuration changes are uncommitted.
-3. Configure concrete `build`, `typecheck`, and `test_full` argv arrays and
+4. Configure concrete `build`, `typecheck`, and `test_full` argv arrays and
    `strict_supervision: true` in
    `.codexdevteam/framework/verification.json`.
+   Add narrow `.gitignore` entries for generated host runtime directories
+   (`.codexdevteam/state/`, `.codexdevteam/gates/`, `.codexdevteam/control/`,
+   and `.codexdevteam/logs/`) and for build outputs such as `__pycache__/`.
+   Keep `.codexdevteam/framework/` tracked when the project shares its worker
+   and gate policy. Do not ignore `.codexdevteam/` wholesale: the host commit
+   boundary rejects broad ignored host metadata.
    If those commands create ignored build artifacts inside task worktrees,
    add narrowly scoped repository-relative patterns to
    `ignored_paths_allowlist`. Matching ignored paths are excluded from the
    host commit; all other ignored paths still refuse the commit. Do not use
    broad patterns or patterns that cover `.git` or `.codexdevteam`.
-4. Create the host control directory and copy its schema template:
+5. The default `capacity_source` is `codex_app_server`. The host uses the
+   configured Codex executable to query the local Codex app-server
+   `account/rateLimits/read` API before activation and on each cycle. This
+   requires working Codex account authentication and one unambiguous shared
+   `codex` quota bucket. Missing auth, unavailable API data, model-specific
+   buckets, and unknown buckets all block dispatch. `host-preflight` performs
+   the same read without activating the project.
+
+   Projects that explicitly configure `"capacity_source": "snapshot"` use the
+   manual compatibility source below. This mode requires an owner-maintained
+   snapshot and does not satisfy unattended automatic capacity monitoring.
 
    ```powershell
    New-Item -ItemType Directory -Force .codexdevteam\control | Out-Null
@@ -33,16 +53,13 @@ supported for supervised builder execution.
      .codexdevteam\control\capacity.json
    ```
 
-   Fill `observed_at` and one worker entry per active worker with freshly
-   observed availability, free slots, quota, and any cooldown. Do not estimate
-   capacity or copy an old observation forward.
-   CODEXDEVTEAM currently requires this timestamped snapshot but does not yet
-   connect an automatic provider capacity source; manual file refresh is not
-   unattended capacity monitoring.
-5. Ensure `PLAN.md` contains only unassigned `pending` or `blocked` tasks, plus
+   For snapshot mode, fill `observed_at` and one worker entry per active worker
+   with freshly observed availability, free slots, quota, and any cooldown. Do
+   not estimate capacity or copy an old observation forward.
+6. Ensure `PLAN.md` contains only unassigned `pending` or `blocked` tasks, plus
    valid archived stubs. Tasks already `claimed`, `in_progress`, `needs_review`,
    or `done` require an explicit migration/review decision and block bootstrap.
-6. Seed the parked state database from the exact PLAN snapshot:
+7. Seed the parked state database from the exact PLAN snapshot:
 
    ```powershell
    codexdevteam host-bootstrap --project C:\Projects\MyProject
@@ -66,8 +83,8 @@ state totals at any time with:
 codexdevteam host-status --project C:\Projects\MyProject
 ```
 
-When the active strict workers, gate commands, and capacity snapshot are ready,
-start the bounded host loop with explicit confirmation:
+When the active strict workers, gate commands, and configured capacity source
+are ready, start the bounded host loop with explicit confirmation:
 
 ```powershell
 codexdevteam host-run --project C:\Projects\MyProject --confirm-activation

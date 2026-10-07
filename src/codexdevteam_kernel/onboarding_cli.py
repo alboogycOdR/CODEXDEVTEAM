@@ -17,7 +17,7 @@ from threading import Thread
 from .installer import (InstallationConflict, install_devdepartment_sidecar,
                         install_fresh_project, upgrade_codexdevteam_project)
 from .host_config import WindowsHostConfig
-from .host_runtime import load_host_runtime, _read_object
+from .host_runtime import load_host_runtime, load_runtime_capacity, _read_object
 from .host_runner import (activate_fresh_host, request_host_stop,
                           run_configured_host_loop, watch_host_stop_request)
 from .installer_resources import default_framework_files, devdepartment_sidecar_files
@@ -37,7 +37,7 @@ from .usage import UsageRate, summarize_invocations
 def _assert_supervised_run_ready(config: WindowsHostConfig) -> None:
     """Fail before model spend or project writes if worker and capacity policy is incomplete."""
     bindings = load_host_runtime(config)
-    observations = config.load_capacity_observations()
+    observations = load_runtime_capacity(config, bindings)
     active = set(bindings.registry.active)
     missing = sorted(active - set(observations))
     unknown = sorted(set(observations) - set(bindings.registry.defined))
@@ -328,11 +328,11 @@ def main() -> int:
                 bindings = load_host_runtime(config)
             except (OSError, ValueError, TypeError) as exc:
                 findings.append("runtime bindings: " + str(exc))
-            try:
-                observations = config.load_capacity_observations()
-            except (OSError, ValueError, TypeError) as exc:
-                findings.append("capacity snapshot: " + str(exc))
             if bindings is not None:
+                try:
+                    observations = load_runtime_capacity(config, bindings)
+                except (OSError, ValueError, TypeError) as exc:
+                    findings.append("capacity source: " + str(exc))
                 unknown = sorted(set(observations) - set(bindings.registry.defined))
                 if unknown:
                     findings.append("capacity names undefined workers: " + ", ".join(unknown))

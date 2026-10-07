@@ -4,7 +4,7 @@ Kernel policy stays provider-neutral; runtime adapters and bounded supervisor
 orchestration remain explicit opt-in components.
 """
 
-__version__ = "0.1.0"
+__version__ = "0.2.0"
 
 from .identity import WorkerIdentity
 from .host_config import WindowsHostConfig

@@ -738,3 +738,153 @@ for strict mode until those capabilities are verified without the bypass.
   the full Windows suite (**295 passed, 8 skipped**); hosted CI run
   [37674230702](https://github.com/alboogycOdR/CODEXDEVTEAM/actions/runs/37674230702)
   passed for commit `798c4ef7a07ad42d3f145030dfcb50927992d131`.
+
+## Live Codex capacity-source preflight — 2026-10-07
+
+- Command: `codexdevteam host-preflight --project <disposable-capacity-smoke>`
+  using the default `codex_app_server` source and the installed Windows Codex
+  executable. The preflight queried `account/rateLimits/read` through the
+  app-server stdio protocol.
+- Result: exit code 0, `worker_and_capacity_ready: true`, both configured
+  worker IDs present, no findings, `activation_available: false`,
+  `activation_state: parked`, and `dispatch_performed: false`. The output
+  records readiness only; account usage values are intentionally not copied
+  into this evidence log.
+- The first transport implementation sent initialization and the capacity
+  request in one batch and received no account response. The adapter was
+  changed to wait for the initialize response before sending `initialized` and
+  the read request. The bounded request/response, timeout, failure, and
+  per-refresh behavior are covered by `tests/test_capacity_source.py`.
+- This establishes live Windows adapter operation and read-only preflight. It
+  does not replace the 2026-10-07 unattended acceptance run, which used a
+  manually seeded capacity snapshot, or prove quota refresh across a live
+  multi-cycle maker run.
+- Validation after the adapter and refresh regression: Windows PowerShell full
+  suite **309 passed, 8 skipped** on Python 3.11 and 3.12; `git diff --check`
+  passed.
+- The read-only `usage` CLI was also run against the acceptance project's
+  authoritative `state.sqlite`. It reports 3 successful maker invocations and
+  3 successful checker invocations, all with complete token counters; aggregate
+  usage is 727,363 input, 11,273 output, and 645,632 cached input tokens.
+  `cost_usd` is null for both configured models because no effective pricing
+  rates were supplied. No API price was substituted for subscription usage.
+- Packaging validation built and installed the current wheel into a disposable
+  target. The five packaged entry points passed: `codexdevteam`,
+  `codexdevteam-test`, `codexdevteam-control`, `codexdevteam-fast-eval`, and
+  `codexdevteam-codex-hook` (which returned the expected fail-closed denial for
+  an empty request).
+
+## Live capacity-source supervised-run attempt — 2026-10-07
+
+- A fresh disposable Windows project passed `host-preflight` with the live
+  Codex app-server capacity source, then activated with explicit confirmation.
+  The host generated one task and dispatched it to the configured Codex maker.
+- The maker created the requested implementation and test files in its task
+  worktree. A manual focused run passed all 8 task tests. The runtime adapter
+  then reported `launch_failed`; the host made no commit, ran no gate or
+  checker, and did not report task acceptance. The exact adapter exception was
+  not retained by the earlier runtime code, so its root cause is unknown.
+- The host closeout path also raised when it attempted to run a gate without a
+  successful host commit. That prevented the continuous runner from recording
+  its normal incomplete-closeout result. The code now skips gate/checker for a
+  missing commit and journals callback exceptions as a sanitized
+  `supervisor.continuous_closeout_failed` event before stopping the cycle.
+  Maker failures retain the exception class while omitting the exception
+  message.
+- A successor invocation recovered the interrupted run using the Windows Job
+  Object process-tree proof (`verified=true`, no active processes), preserved
+  the task, and escalated it for human recovery. No retry was dispatched.
+- Evidence: this attempt proves the live capacity source gated activation and
+  dispatch in a supervised cycle, but it does not prove end-to-end maker,
+  commit, gate, checker, or integration acceptance. The disposable task
+  worktree is preserved for inspection. Later attempts below identified the
+  closeout and fixture-ignore issues and completed a fresh end-to-end run.
+- After the closeout regression fixes, the Windows PowerShell full suite passed
+  **311 tests, 8 skipped** on Python 3.12 and **311 tests, 8 skipped** on
+  Python 3.11. `git diff --check` also passed.
+- Built the pre-version-bump source wheel with Python 3.11, installed it into a
+  disposable target, and smoke-ran all five installed entry points. After
+  setting package and framework version to `0.2.0`, rebuilt and installed
+  `codexdevteam-kernel-0.2.0-py3-none-any.whl`; installed metadata and
+  `codexdevteam_kernel.__version__` both report `0.2.0`, all five entry points
+  start, and the Codex hook returns its expected fail-closed denial for an
+  invalid PreToolUse event. Wheel SHA-256:
+  `0e384ba6f35410f7615cf53f0b766fb0e76382693b2681fa5379663de0a570dc`.
+
+## End-to-end live-capacity Windows acceptance — 2026-10-07
+
+- A fresh disposable Windows project passed `host-preflight` with both strict
+  workers ready and the default live Codex app-server capacity source. The
+  project had a committed baseline, a one-task plan, and narrow Git ignore
+  entries for Python bytecode and CODEXDEVTEAM runtime state, gates, control,
+  and logs. Framework configuration remained tracked; these host paths were
+  not added to the builder ignored-path allowlist.
+- The bounded supervisor ran one maker invocation (`codex` / `gpt-6.1-sol`)
+  and one independent checker invocation (`codex` / `gpt-6-sol`). The host
+  committed maker SHA `2e03ed1795a44af8e37d44e7637c7eeaeddf5f01`; the exact-SHA
+  gate passed; the checker approved that same SHA; and integration completed
+  at `6ebf2173e4db3616715bb6835a7cc09f1e4d7d39`. The integrated diff contains
+  only `src/estimate.py` and `tests/test_estimate.py`.
+- Final state: task `DONE`, project branch `main`, no open escalations, no
+  active maker invocations, no active HEAD lease, and supervisor parked at its
+  configured 25-cycle bound. The verified invocation liveness record is
+  `completed` under a Windows Job Object.
+- Pilot metrics: 1/1 first-pass approval, one passing gate, one integration,
+  zero gate rejections, zero rework, zero open escalations. The maker ran for
+  95.672 seconds and checker for 38.812 seconds. Both receipts have complete
+  token counters: 200,860 input, 2,149 output, and 169,472 cached input tokens
+  combined. `cost_usd` remains null because no subscription cost or configured
+  attribution rates were available.
+- The preceding attempts found two setup-sensitive failures: `compileall`
+  output must be ignored so the SHA-bound test cache sees a clean task tree;
+  runtime state and gate artifacts must be ignored by Git so the integration
+  cleanliness check sees a clean project checkout. The successful fixture
+  applied narrow `.gitignore` entries for those generated paths. A broad
+  `.codexdevteam/` ignore is not accepted by the host commit boundary.
+- This proves one complete unattended task cycle using live capacity on
+  Windows. It does not make one task a statistically representative field
+  accuracy sample, provide subscription-dollar spend, or constitute hosted CI
+  evidence for the current uncommitted CODEXDEVTEAM patch.
+
+## Three-task live-capacity Windows acceptance — 2026-10-07
+
+- A new disposable Windows project started from a validated three-task brief
+  with disjoint source/test ownership. `host-preflight` found both strict
+  workers ready through the live app-server source. The host ran the tasks
+  sequentially under one HEAD lease and was asked to park after the final
+  integration.
+- All three makers completed under `codex` / `gpt-6.1-sol`; all three
+  independent checkers used `codex` / `gpt-6-sol`. Each task passed its
+  exact-SHA gate, received first-pass approval on that same SHA, and produced a
+  completed integration receipt. The final project diff from its baseline is
+  exactly six files: the three implementations and their three focused test
+  files.
+- The host parked on the requested stop with all three tasks `DONE`, no open
+  escalations, no active maker invocations, no active lease, and all three
+  Windows Job Object liveness records completed. There were no task retries,
+  launch failures, gate rejections, checker changes, or review rejections.
+- Receipt binding for each task:
+
+  | Task | Gate and approved SHA | Integrated SHA |
+  | --- | --- | --- |
+  | `TASK-1` | `b62269828d524ad1bc52efe502215467186662b4` | `b26082f83a3a11e92f2159b5c9d59088bc452585` |
+  | `TASK-2` | `f93d3c520e55a9ddd37b19805fb1b06305b6bb30` | `46a6844e316bd58ce70063156ff8ac1ab641d4ea` |
+  | `TASK-3` | `068dd3baceb25fb39e284792b73089c1debbfefc` | `887eb6270d05bcf6d9a50f9fb34003c77fc8b429` |
+
+  Each review receipt references the corresponding gate SHA shown above.
+- Recorded metrics: 3/3 first-pass approvals, 3 passing gates, 3 integrations,
+  0 rework, and 0 open escalations. Maker duration was 219.859 seconds total;
+  checker duration was 216.234 seconds total. All six receipts had complete
+  counters: 777,537 input, 9,995 output, and 691,456 cached input tokens.
+  `cost_usd` remains null because subscription spend is not exposed and no
+  attribution rates were configured. Activation-to-park elapsed time was 512
+  seconds. The final integrated project HEAD was
+  `887eb6270d05bcf6d9a50f9fb34003c77fc8b429`.
+- Together with the preceding one-task live-capacity run, the live-source
+  sample is 4/4 first-pass approvals and 4/4 integrations. The earlier separate
+  three-task manual-snapshot pilot remains its own data point. These runs
+  establish repeatable bounded Windows operation but do not set a statistical
+  accuracy threshold or validate a broader task mix. Optional fast-tier
+  routing remains disabled. The authoritative state database is preserved in
+  the disposable pilot at
+  `C:\Users\Nuburo\AppData\Local\Temp\CODEXDEVTEAM-live-capacity-acceptance-20261007-r7\.codexdevteam\state\state.sqlite`.

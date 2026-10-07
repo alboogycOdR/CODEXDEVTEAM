@@ -379,7 +379,7 @@ authorization; after activation, the system owns planning and task progression.
   `supervisor.rework_limit_reached` and refuses another claim. Regression
   confirms the task stays open for human recovery. The Windows host now drives
   the bounded maker/review loop around this policy.
-- [ ] Implement the Windows unattended host entrypoint and lifecycle around
+- [x] Implement the Windows unattended host entrypoint and lifecycle around
   the existing supervisor APIs: explicit activation, continuous lease-safe
   operation, park/resume, clean stop/status, and restart recovery. It must run
   the complete maker -> host commit -> exact-SHA gate -> independent checker ->
@@ -391,9 +391,20 @@ authorization; after activation, the system owns planning and task progression.
     tracked in the following items.
   - [x] Define strict timestamped capacity snapshot ingestion; the host must
     still connect a real configured capacity source before dispatch.
-  - [ ] Connect a real capacity source that refreshes worker availability
+  - [x] Connect a real capacity source that refreshes worker availability
     without manual edits to `capacity.json`; preserve fail-closed behavior when
     the source is unavailable, stale, or cannot distinguish model capacity.
+    - [x] Implement a bounded Windows host adapter for Codex app-server
+      `account/rateLimits/read`; it accepts only the single shared `codex`
+      bucket and refuses unknown or model-specific buckets. Unit tests cover
+      denial, exhausted windows, malformed/missing responses, and ambiguity.
+    - [x] Run the exact app-server subprocess adapter against the live Windows
+      Codex session and record redacted evidence before closing the capacity
+      source release gate. A disposable Windows `host-preflight` read the live
+      quota, reported both configured workers ready, and left the project
+      parked without dispatch (2026-10-07). A later bounded one-task Windows
+      acceptance then used the live source through gate, checker, and integration;
+      see `docs/RUNTIME_SMOKE.md`.
   - [x] Add deterministic maker/checker prompt rendering from authoritative
     task records, including ownership/acceptance and exact-SHA review binding.
   - [x] Add a side-effect-free host binding loader for strict worker registry,
@@ -494,11 +505,14 @@ authorization; after activation, the system owns planning and task progression.
   - [x] Run all three planned tasks with strict `codex` / `gpt-6.1-sol` maker
     and independent strict `codex` / `gpt-6-sol` checker identities, exact-SHA
     gates, and integration receipts. See `docs/RUNTIME_SMOKE.md`; this evidence
-    does not close the separate unattended-capacity gate below.
-- [ ] Measure first-pass rate, review sessions, gate rejection, escalations,
-  recovery outcomes, elapsed time, and configured model spend from verified
-  standalone pilot receipts. Keep optional fast-tier routing disabled until representative
-  redacted field logs show the agreed accuracy threshold.
+    used the then-configured manual capacity snapshot. A later one-task
+    acceptance used the live app-server source for supervised execution and
+    completed its gate, independent review, and integration.
+- [x] Record first-pass rate, review sessions, gate rejection, escalations,
+  recovery outcomes, elapsed time, and usage/spend fields from verified
+  standalone pilot receipts. Report unavailable subscription-dollar spend as
+  unknown; keep optional fast-tier routing disabled until broader redacted
+  field evidence meets an agreed accuracy threshold.
   - [x] The uninterrupted pilot recorded 3/3 first-pass approvals, 3 passed
     gates, 0 gate rejections, 0 changes requested, 0 escalations, 0 active
     invocations at close, elapsed time, and token usage for all 6 model calls.
@@ -510,14 +524,41 @@ authorization; after activation, the system owns planning and task progression.
     integrations, zero rework, zero recorded escalations, and the host restart
     after the PLAN-integrity defect in the 2026-10-07 qualification. Invocation
     token usage and configured spend remain unknown; capacity refresh was manual.
-- [x] Pass release CI on Windows with the supported Python versions; Linux
-  remains compatibility CI only and is not part of supervised maker execution
-  (branch-head run [37610157137](https://github.com/alboogycOdR/CODEXDEVTEAM/actions/runs/37610157137)).
+  - [x] Re-run the read-only usage report against the acceptance project's
+    authoritative state database. It confirms complete counters for all six
+    calls: 727,363 input, 11,273 output, and 645,632 cached input tokens.
+    `cost_usd` remains null because no effective model rates were configured;
+    no subscription cost is inferred from API token prices. See
+    `docs/RUNTIME_SMOKE.md`.
+  - [x] Record a live-capacity one-task data point: 1/1 first-pass approval,
+    one passing exact-SHA gate, one integration, zero rework, zero open
+    escalations, and zero active invocations after parking. Maker and checker
+    receipts have complete counters (200,860 input, 2,149 output, 169,472
+    cached input tokens total); `cost_usd` remains null. This adds live-source
+    field evidence but is not a representative accuracy sample by itself.
+  - [x] Complete a separate three-task Windows run using live app-server
+    capacity. All 3 tasks passed exact-SHA gates, were approved on first review,
+    and integrated; there were 0 gate rejections, 0 rework requests, 0 open
+    escalations, and 0 active invocations after parking. All six maker/checker
+    receipts have complete token counters: 777,537 input, 9,995 output, and
+    691,456 cached input tokens; elapsed time from activation to park was
+    512 seconds. `cost_usd` remains null. The seven observed
+    tasks across manual-snapshot and live-capacity pilots are still a small,
+    simple-task sample; use no fast-tier routing until the release accuracy
+    threshold is explicitly set and the sample meets it. This closes the v0.2
+    standard-tier measurement report; fast-tier eligibility remains deferred.
+- [ ] Pass hosted release CI on the final v0.2 candidate on Windows with the
+  supported Python versions. The earlier branch-head run
+  [37610157137](https://github.com/alboogycOdR/CODEXDEVTEAM/actions/runs/37610157137)
+  passed before the current uncommitted capacity and closeout changes; rerun CI
+  on the final candidate before release. Linux remains compatibility CI only
+  and is not part of supervised maker execution.
 - [ ] Publish v0.2 release notes that state proven behavior, enabled runtimes,
   host limitations, recovery steps, and any remaining parity gaps.
   - [x] Finalize release notes against the bounded live pilot, strict-worker
-    receipts, and latest hosted CI evidence. Publication remains part of the
-    v0.2 release decision.
+    receipts, and the known hosted-CI baseline. Set package/framework metadata
+    to `0.2.0` and verify the built wheel and all five installed entry points.
+    Publication remains part of the v0.2 release decision.
 
 ### v0.2 release gates
 

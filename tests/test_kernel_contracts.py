@@ -1062,6 +1062,53 @@ class SupervisorTests(unittest.TestCase):
     def tearDown(self):
         self.temp.cleanup()
 
+    def test_host_closeout_skips_gate_when_maker_has_no_commit(self):
+        from unittest.mock import patch
+        from codexdevteam_kernel.host_config import WindowsHostConfig
+        from codexdevteam_kernel.host_runtime import HostRuntimeBindings
+        from codexdevteam_kernel.host_runner import closeout_host_cycle
+        from codexdevteam_kernel.supervisor import (SupervisorCycleResult,
+                                                    SupervisorLaunchCycleResult,
+                                                    TaskInvocationCycleResult)
+
+        project = Path(self.temp.name)
+        task = TaskRecord("TASK-NO-COMMIT", "Leave failed maker for recovery",
+                          TaskState.IN_PROGRESS, "builder", "high", ("src/task.py",),
+                          maker_identity={"unit_id": "builder", "runtime": "codex",
+                                          "model": "builder-model"})
+        self.store.seed_task(self.lease, task, event_id="seed-no-commit", now=101)
+        invocation = InvocationResult(
+            "maker-no-commit", task.task_id, "maker", "builder", "codex",
+            "builder-model", "launch_failed", None, 1.0, "",
+            "runtime adapter raised RuntimeError", False,
+            hashlib.sha256(b"runtime adapter failed").hexdigest(), 101, 102,
+        )
+        maker = TaskInvocationCycleResult(task.task_id, "builder", str(project), invocation)
+        cycle = SupervisorLaunchCycleResult(
+            SupervisorCycleResult("no-commit:1", "running", (task.task_id,), {}),
+            (maker,),
+        )
+        config = WindowsHostConfig.from_dict(project, {
+            "protocol_version": 1,
+            "state_db": ".codexdevteam/state/state.sqlite",
+            "registry": ".codexdevteam/framework/registry.json",
+            "verification_config": ".codexdevteam/framework/verification.json",
+            "capacity_snapshot": ".codexdevteam/control/capacity.json",
+            "worktree_root": "../{project_name}-codexdevteam-worktrees",
+            "control_root": ".codexdevteam/control",
+            "logs_root": ".codexdevteam/logs",
+            "system_id": "test-system", "instance_id": "closeout-test",
+        })
+        bindings = HostRuntimeBindings(
+            self.registry, {}, {}, (), (), None, (),
+        )
+        with patch("codexdevteam_kernel.host_runner.GitWorktreeManager"):
+            closeouts = closeout_host_cycle(
+                self.supervisor, self.lease, cycle, config, bindings, None,
+                base_ref="unused",
+            )
+        self.assertEqual(closeouts, ())
+
     def test_requeue_requires_latest_changes_requested_review(self):
         task = TaskRecord("TASK-REQUEUE", "Repair reviewed task", TaskState.IN_PROGRESS,
                           "builder", "medium", ("src/**",), maker_identity={
@@ -1417,6 +1464,57 @@ class SupervisorTests(unittest.TestCase):
         self.assertEqual(event["payload"], {
             "type": "supervisor.continuous_closeout_incomplete",
             "cycle_id": "closeout:1",
+            "tasks": [{"task_id": task.task_id, "state": "in_progress"}],
+        })
+
+    def test_continuous_supervisor_journals_closeout_callback_failure(self):
+        from threading import Event
+        from types import SimpleNamespace
+        from unittest.mock import patch
+        from codexdevteam_kernel.supervisor import (SupervisorCycleResult,
+                                                    SupervisorLaunchCycleResult)
+
+        task = TaskRecord("TASK-CLOSEOUT-ERROR", "Journal failed closeout",
+                          TaskState.IN_PROGRESS, None, "high", ("src/closeout.py",))
+        self.store.set_supervisor_mode(
+            self.lease, "running", event_id="run-closeout-error", now=102,
+        )
+        cycle = SupervisorLaunchCycleResult(
+            SupervisorCycleResult("closeout-error:1", "running", (task.task_id,), {}),
+            (SimpleNamespace(task_id=task.task_id),),
+        )
+        inputs = {
+            "capacity": {}, "task_prompts": {}, "invocation_ids": {},
+            "base_ref": "unused", "worktrees": object(), "adapters": {}, "now": 103,
+        }
+
+        def launch_with_unclosed_task(*_args, **_kwargs):
+            self.store.seed_task(
+                self.lease, task, event_id="seed-closeout-error", now=103,
+            )
+            return cycle
+
+        def fail_closeout(_result):
+            raise ValueError("private closeout detail")
+
+        with patch.object(self.supervisor, "run_dispatch_and_launch_cycle",
+                          side_effect=launch_with_unclosed_task) as launch:
+            result = self.supervisor.run_continuous(
+                self.lease, cycle_inputs=lambda _tick: inputs,
+                cycle_id_prefix=lambda _tick: "closeout-error",
+                stop_event=Event(), interval_seconds=0.001, max_cycles=3,
+                on_cycle=fail_closeout,
+            )
+
+        self.assertEqual(result.cycles_completed, 1)
+        self.assertEqual(result.stop_reason, "closeout_failed")
+        launch.assert_called_once()
+        event = next(item for item in self.store.events()
+                     if item["event_id"] == "continuous-closeout-failed:closeout-error:1")
+        self.assertEqual(event["payload"], {
+            "type": "supervisor.continuous_closeout_failed",
+            "cycle_id": "closeout-error:1",
+            "failure_type": "ValueError",
             "tasks": [{"task_id": task.task_id, "state": "in_progress"}],
         })
 
@@ -2371,6 +2469,7 @@ class SupervisorTests(unittest.TestCase):
             base_ref=base, worktrees=manager, adapters={"codex": adapter}, now=104)
         self.assertEqual(result.invocation.status, "launch_failed")
         self.assertNotIn("private details", result.invocation.stderr)
+        self.assertIn("RuntimeError", result.invocation.stderr)
         snapshot = Path(adapter.requests[0].state_db_path)
         self.assertFalse(snapshot.exists())
         self.assertFalse(any(Path(str(snapshot) + suffix).exists()

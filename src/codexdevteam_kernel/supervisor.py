@@ -626,7 +626,28 @@ class Supervisor:
                 completed += 1
                 last_cycle = result
                 if on_cycle is not None:
-                    on_cycle(result)
+                    try:
+                        on_cycle(result)
+                    except Exception as exc:
+                        failed_tasks = []
+                        for maker in result.makers:
+                            task = self.store.get_task(maker.task_id)
+                            failed_tasks.append({
+                                "task_id": maker.task_id,
+                                "state": "missing" if task is None else task.state.value,
+                            })
+                        failure_type = type(exc).__name__
+                        if not re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]{0,79}", failure_type):
+                            failure_type = "Exception"
+                        self.store.record_event(
+                            lease, f"continuous-closeout-failed:{prefix}:{tick}",
+                            {"type": "supervisor.continuous_closeout_failed",
+                             "cycle_id": result.dispatch.cycle_id,
+                             "failure_type": failure_type, "tasks": failed_tasks},
+                            now=inputs.get("now"),
+                        )
+                        reason = "closeout_failed"
+                        break
                 if guard is not None:
                     guard.raise_if_lost()
                 unresolved = []
@@ -1208,12 +1229,16 @@ class Supervisor:
                 )
             except LeaseError:
                 raise
-            except Exception:
+            except Exception as exc:
                 finished_at = time.time()
+                failure_type = type(exc).__name__
+                if not re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]{0,79}", failure_type):
+                    failure_type = "Exception"
                 result = InvocationResult(
                     invocation_id, task_id, "maker", worker.identity.unit_id,
                     worker.identity.runtime, worker.identity.model, "launch_failed", None,
-                    max(0.0, finished_at - started_at), "", "runtime adapter failed",
+                    max(0.0, finished_at - started_at), "",
+                    f"runtime adapter raised {failure_type}",
                     False, hashlib.sha256(b"runtime adapter failed").hexdigest(),
                     started_at, finished_at,
                     process_tree_cancel_method="runtime_adapter_failure",

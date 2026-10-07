@@ -62,6 +62,7 @@ def default_framework_files() -> dict[str, str]:
         "max_rework_attempts": 1,
         "require_strict": True,
         "require_capacity_observation": True,
+        "capacity_source": "codex_app_server",
     }
     capacity = {
         "protocol_version": 1,

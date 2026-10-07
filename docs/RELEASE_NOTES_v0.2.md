@@ -2,10 +2,12 @@
 
 **Release status:** not ready for release. These notes describe the current
 verified development state; they do not declare v0.2 complete or authorize a
-release. An uninterrupted three-task strict Windows acceptance run completed.
-Capacity was seeded manually before activation, and configured model spend is
-still unknown because no pricing rates were configured. An automatic capacity
-source and hosted CI for the latest uncommitted change remain outstanding.
+release. The three-task strict Windows pilot completed with a manually seeded
+capacity snapshot. Two subsequent runs used live Codex app-server capacity and
+completed maker, gate, checker, and integration for one task and then three
+tasks. Configured subscription-dollar spend remains unknown because the local
+account does not expose per-model charges and no attribution rates were
+configured.
 
 ## What v0.2 adds
 
@@ -39,6 +41,10 @@ source and hosted CI for the latest uncommitted change remain outstanding.
   commit; other ignored paths still refuse the commit.
 - Report invocation usage and pilot metrics from recorded receipts. Missing
   usage and pricing remain unknown rather than being treated as zero.
+- Query Codex account rate limits automatically through the local app-server
+  before activation and each cycle. The adapter accepts only one shared
+  `codex` quota bucket and fails closed on model-specific or unknown buckets.
+  Manual JSON snapshots remain an explicit compatibility option.
 
 ## Supported environment
 
@@ -59,13 +65,19 @@ source and hosted CI for the latest uncommitted change remain outstanding.
   strict Codex maker/checker identities, exact-SHA gates, independent approvals,
   and integration receipts. The host parked at its configured cycle bound and
   released the HEAD lease after all tasks were done.
-- The pilot recorded three first-pass approvals, three passing gates, no gate
-  rejections, no rework, and no escalations. All six calls retained input and
-  output token counts. Configured spend remains unknown, and capacity was
-  manually seeded once before activation; a connected automatic capacity source
-  is still a release blocker.
-  Optional fast-tier routing remains disabled until representative evidence
-  supports enabling it.
+- Two separate bounded Windows runs used the live app-server capacity source
+  through dispatch and every closeout stage: one task and then three tasks.
+  All four tasks passed their exact-SHA gates, received independent first-pass
+  approval, and integrated. The host parked with no active invocations or
+  leases. The three-task run provides a second multi-task data point using live
+  capacity.
+- The original manual-snapshot pilot recorded three first-pass approvals and
+  complete token counts. The two live-capacity runs recorded four more
+  first-pass approvals, four passing gates, four integrations, no rework, and
+  no open escalations. Each run parked and released its lease. Subscription
+  dollar spend remains unknown; no API prices were substituted. The task sample
+  is still small and uses simple utility work, so fast-tier routing remains
+  disabled pending an agreed accuracy threshold and broader evidence.
 - Restarted tasks are escalated and left for deliberate operator review; the
   host does not automatically replay uncertain work.
 - The host supports fresh-project activation only. DEVDEPARTMENT sidecar
@@ -74,8 +86,26 @@ source and hosted CI for the latest uncommitted change remain outstanding.
 
 ## Verification recorded during development
 
-- Windows PowerShell full suite: **295 tests passed, 8 skipped** on 2026-10-07,
-  including the configured ignored-artifact allowlist regression.
+- Windows PowerShell full suite: **311 tests passed, 8 skipped** on both
+  Python 3.11 and 3.12 on 2026-10-07, including live-capacity adapter and
+  closeout failure handling regressions.
+- The latest hosted CI evidence is still run
+  [37674230702](https://github.com/alboogycOdR/CODEXDEVTEAM/actions/runs/37674230702)
+  for commit `798c4ef7a07ad42d3f145030dfcb50927992d131`. It predates the current
+  uncommitted changes; hosted CI for the final v0.2 candidate remains open.
+- Local Windows packaging check: the updated source built a wheel with Python
+  3.11, installed into a disposable target, and all five packaged entry points
+  passed their help/fail-closed smoke checks. The v0.2.0 wheel metadata and
+  `codexdevteam_kernel.__version__` both report `0.2.0`; all five entry points
+  passed against the installed wheel after the version bump.
+- Disposable Windows `host-preflight` on 2026-10-07 used the default live
+  Codex app-server capacity source, reported both configured workers ready,
+  and left the project parked without dispatch. This verifies the local
+  account-capacity query path; it is not another supervised acceptance run.
+- The initial live task attempt on 2026-10-07 failed before acceptance and
+  recovery verified the Windows Job Object process tree quiescent. A later
+  corrected disposable fixture completed the full path; both outcomes and the
+  fixture requirements are recorded in `docs/RUNTIME_SMOKE.md`.
 - Latest hosted CI run [37674230702](https://github.com/alboogycOdR/CODEXDEVTEAM/actions/runs/37674230702)
   passed for commit `798c4ef7a07ad42d3f145030dfcb50927992d131` on Windows and
   Ubuntu compatibility jobs with Python 3.11 and 3.12.

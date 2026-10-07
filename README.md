@@ -5,8 +5,10 @@ A GPT-led development-team operating system derived from the proven DEVDEPARTMEN
 ## Status
 
 **v0.1.0 released 2026-10-04.** This is the Windows-first fresh-project
-core; brief-to-plan unattended operation remains in progress. The supervisor remains
-parked until an operator explicitly activates it. v0.2 targets standalone
+core; brief-to-plan unattended operation remains in progress. The supervisor
+remains parked until an operator explicitly activates it. **v0.2.0 is the
+current release candidate**, with final hosted CI and release publication still
+open; see [v0.2 release notes](docs/RELEASE_NOTES_v0.2.md). v0.2 targets standalone
 unattended development of a new project from a brief. DEVDEPARTMENT remains the
 behavioral reference; taking control of an existing DEVDEPARTMENT project and
 returning it are outside the v0.2 release scope.
@@ -16,11 +18,12 @@ provider-neutral coordination policy, a bounded Codex runtime adapter, a
 host-owned commit boundary, and a parked-by-default, lease-fenced dispatch
 cycle. Supervised maker commits are currently supported on Windows; Ubuntu is
 CI coverage only, and maker commits fail closed without a verified Windows Job
-Object proof. The hosted matrix passed on Ubuntu and Windows for Python 3.11
-and 3.12 in the latest branch-head run
-[37185171206](https://github.com/alboogycOdR/CODEXDEVTEAM/actions/runs/37185171206).
-The matrix builds and installs the package, smoke-checks its installed CLI
-entry points, imports the package, and runs the contract suite.
+Object proof. Hosted CI run
+[37674230702](https://github.com/alboogycOdR/CODEXDEVTEAM/actions/runs/37674230702)
+passed on Ubuntu and Windows for Python 3.11 and 3.12 for commit
+`798c4ef7a07ad42d3f145030dfcb50927992d131`; the current v0.2.0 candidate still
+needs hosted CI. The matrix builds and installs the package, smoke-checks its
+installed CLI entry points, imports the package, and runs the contract suite.
 
 ## Lineage
 

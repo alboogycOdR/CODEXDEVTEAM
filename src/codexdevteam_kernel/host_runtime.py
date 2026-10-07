@@ -6,6 +6,7 @@ from pathlib import Path
 from typing import Any
 
 from .dispatch import TaskClassPolicy
+from .capacity_source import load_host_capacity as _load_host_capacity
 from .gate import GateRunner
 from .host_config import WindowsHostConfig, _reject_duplicate_keys
 from .registry import WorkerRegistry
@@ -141,6 +142,19 @@ def load_host_runtime(config: WindowsHostConfig, *,
     return HostRuntimeBindings(registry, adapters, commands, tuple(protected),
                                tuple(environment), task_class_policy,
                                ignored_paths_allowlist)
+
+
+def load_runtime_capacity(config: WindowsHostConfig,
+                          bindings: HostRuntimeBindings):
+    """Refresh capacity from the configured provider source using host bindings."""
+    if not isinstance(bindings, HostRuntimeBindings):
+        raise ValueError("capacity refresh requires validated host runtime bindings")
+    adapter = bindings.adapters.get("codex")
+    executable = getattr(adapter, "executable", None)
+    if config.capacity_source == "codex_app_server" and not isinstance(executable, str):
+        raise ValueError("Codex capacity source requires the configured Codex executable")
+    command_prefix = (executable,) if isinstance(executable, str) else ()
+    return _load_host_capacity(config, bindings.registry, command_prefix=command_prefix)
 
 
 def build_gate_runner(project_root: str | Path, config: WindowsHostConfig,
