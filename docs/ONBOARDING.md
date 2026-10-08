@@ -14,7 +14,9 @@ Staged setup:
 5. configure project verification commands, task-class routing, and strict builder/checker identities;
 6. smoke-test runtime launch and worktree write capability, then validate CONTROL emission;
 7. enable strict mode only for workers with live verification receipts;
-8. run `codexdevteam host-bootstrap` and explicitly activate with `host-run`.
+8. run `codexdevteam host-bootstrap` and explicitly activate with `host-run
+   --confirm-activation --confirm-prior-lease-takeover` after verifying that
+   bootstrap has released its lease and no other HEAD is active.
 
 For a configured fresh project where plan creation and activation are both
 authorized, `codexdevteam host-run --project <path> --brief <file>
@@ -38,13 +40,25 @@ existing plan or activates HEAD. Task-state bootstrap and supervisor activation
 remain separate explicit steps unless the combined `host-run --brief` path is
 chosen.
 
-Before gate runs, configure Git to ignore mutable runtime artifacts under
-`.codexdevteam/project/` while keeping project-owned configuration files
-trackable. At minimum, ignore SQLite databases and sidecar files plus the
-`control-outbox/` directory (for example, with local `.git/info/exclude`
-patterns). The installer does not edit a project's `.gitignore` or Git exclude
-file. Commit the inactive framework defaults and any configuration intended
-to be shared before running a clean-worktree verification gate.
+The separate `host-bootstrap` command acquires and releases a short-lived HEAD
+lease while seeding task state. Its released lease record remains in the state
+database. A subsequent `host-run` therefore requires
+`--confirm-prior-lease-takeover`; this confirmation is not needed when one
+`host-run --brief` command performs bootstrap and activation together. Check
+`host-status` before confirming takeover. A live lease still blocks activation.
+
+`host-plan` leaves the generated `PLAN.md` untracked by Git unless the project
+owner adds it. The host projects task status into that file during execution;
+decide whether it belongs in the project's Git history before activation.
+
+Before gate runs, configure Git to ignore mutable runtime artifacts, including
+the configured state database and its sidecar files, gate receipts, control
+outbox, and host logs. The packaged Windows defaults place these under
+`.codexdevteam/state/`, `.codexdevteam/gates/`, `.codexdevteam/control/`, and
+`.codexdevteam/logs/`. Keep project-owned framework configuration trackable.
+The installer does not edit a project's `.gitignore` or Git exclude file.
+Commit the inactive framework defaults and any configuration intended to be
+shared before running a clean-worktree verification gate.
 
 Fresh installs also include `.codexdevteam/framework/task-routing.json`, which
 maps explicit `Task_Class` labels to capability floors and optional logical
