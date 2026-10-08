@@ -1576,6 +1576,81 @@ class StateStore:
         finally:
             db.close()
 
+    def bootstrap_fresh_tasks(self, lease: HeadLease, tasks: tuple[TaskRecord, ...],
+                              historical_task_ids: tuple[str, ...], *,
+                              source_plan_sha256: str, event_id: str,
+                              now: float | None = None) -> bool:
+        """Atomically seed a fresh parked project from an exact PLAN snapshot."""
+        if not isinstance(tasks, tuple) or not tasks or not all(
+                isinstance(task, TaskRecord) for task in tasks):
+            raise ValueError("fresh bootstrap requires a non-empty tuple of TaskRecord values")
+        if (not isinstance(historical_task_ids, tuple)
+                or not all(isinstance(task_id, str) and task_id.strip()
+                           for task_id in historical_task_ids)):
+            raise ValueError("historical_task_ids must be a tuple of non-empty IDs")
+        if not re.fullmatch(r"[0-9a-f]{64}", source_plan_sha256 or ""):
+            raise ValueError("source PLAN hash must be a lowercase SHA-256 digest")
+        if not isinstance(event_id, str) or not event_id.strip():
+            raise ValueError("bootstrap event_id is required")
+        if any(task.state not in {TaskState.PENDING, TaskState.BLOCKED}
+               or task.assigned_worker is not None or task.maker_identity is not None
+               for task in tasks):
+            raise ValueError("fresh bootstrap accepts only unassigned pending or blocked tasks")
+        findings = validate_task_set(tasks, archived_task_ids=historical_task_ids)
+        if findings:
+            raise ValueError("fresh bootstrap task set is invalid: " + "; ".join(findings))
+        current = time.time() if now is None else now
+        db = self._connect()
+        try:
+            db.execute("BEGIN IMMEDIATE")
+            self._assert_current(db, lease, current)
+            mode = db.execute("SELECT mode FROM supervisor_mode WHERE singleton=1").fetchone()
+            if mode is not None and mode["mode"] != "parked":
+                raise LeaseError("fresh task bootstrap requires parked supervisor mode")
+            prior = db.execute("SELECT payload_json FROM state_events WHERE event_id=?",
+                               (event_id,)).fetchone()
+            payload = {
+                "type": "task.fresh_bootstrap_completed",
+                "source_plan_sha256": source_plan_sha256,
+                "task_ids": sorted(task.task_id for task in tasks),
+                "historical_task_ids": sorted(historical_task_ids),
+            }
+            payload_json = json.dumps(payload, sort_keys=True, separators=(",", ":"))
+            if prior is not None:
+                if prior["payload_json"] != payload_json:
+                    raise LeaseError("bootstrap event ID was reused for different source state")
+                db.commit()
+                return False
+            existing = db.execute(
+                "SELECT (SELECT COUNT(*) FROM tasks) + "
+                "(SELECT COUNT(*) FROM historical_task_ids) + "
+                "(SELECT COUNT(*) FROM handover_imports) + "
+                "(SELECT COUNT(*) FROM task_archive) + "
+                "(SELECT COUNT(*) FROM state_events) AS count"
+            ).fetchone()["count"]
+            if existing:
+                raise LeaseError("fresh bootstrap requires an empty task and handover store")
+            for task in tasks:
+                task_payload = json.dumps(task.to_dict(), sort_keys=True, separators=(",", ":"))
+                db.execute("INSERT INTO tasks VALUES(?, ?, ?)",
+                           (task.task_id, task_payload, current))
+                self._insert_event(
+                    db, f"{event_id}:task:{task.task_id}", lease.generation,
+                    json.dumps({"type": "task.seeded", "task": task.to_dict()},
+                               sort_keys=True, separators=(",", ":")), current,
+                )
+            for task_id in historical_task_ids:
+                db.execute("INSERT INTO historical_task_ids VALUES(?, ?, ?, ?)",
+                           (task_id, source_plan_sha256, current, lease.generation))
+            self._insert_event(db, event_id, lease.generation, payload_json, current)
+            db.commit()
+            return True
+        except Exception:
+            db.rollback()
+            raise
+        finally:
+            db.close()
+
     def import_handover_tasks(self, lease: HeadLease, tasks: tuple[TaskRecord, ...],
                               historical_task_ids: tuple[str, ...], *,
                               context_fields: tuple[tuple[str, str, int, str], ...] = (),
@@ -2319,7 +2394,10 @@ class StateStore:
                 )
             db.commit()
             if projection is not None:
-                self._apply_plan_projection(event_id, projection)
+                try:
+                    self.apply_pending_plan_projections(lease, now=now)
+                except Exception as exc:
+                    raise PlanProjectionPending(event_id, str(exc)) from exc
             return True
         except Exception:
             db.rollback()

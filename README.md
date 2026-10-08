@@ -4,16 +4,23 @@ A GPT-led development-team operating system derived from the proven DEVDEPARTMEN
 
 ## Status
 
-**Windows-first core implementation; pre-release.** Not production-ready yet.
+**v0.1.0 released 2026-10-04.** This is the Windows-first fresh-project core.
+**v0.2.0 is the current release candidate** for standalone unattended
+development of a new project from a brief. The candidate's brief-to-plan,
+supervised workflow, and hosted CI have passed; release publication remains
+open. See [v0.2 release notes](docs/RELEASE_NOTES_v0.2.md). The supervisor
+remains parked until an operator explicitly activates it. DEVDEPARTMENT remains
+the behavioral reference; taking control of an existing DEVDEPARTMENT project
+and returning it are outside the v0.2 release scope.
 
 The initial source package lives under `src/codexdevteam_kernel/`. It contains
 provider-neutral coordination policy, a bounded Codex runtime adapter, a
 host-owned commit boundary, and a parked-by-default, lease-fenced dispatch
 cycle. Supervised maker commits are currently supported on Windows; Ubuntu is
-CI coverage only, and maker commits fail closed without a verified Windows Job
-Object proof. The hosted matrix passed on Ubuntu and Windows for Python 3.11
-and 3.12 in the latest branch-head run
-[37185171206](https://github.com/alboogycOdR/CODEXDEVTEAM/actions/runs/37185171206).
+CI compatibility coverage only, and maker commits fail closed without a
+verified Windows Job Object proof. The v0.2.0 candidate passed hosted CI on
+Windows and Ubuntu compatibility jobs for Python 3.11 and 3.12 at
+[run 37691384320](https://github.com/alboogycOdR/CODEXDEVTEAM/actions/runs/37691384320).
 The matrix builds and installs the package, smoke-checks its installed CLI
 entry points, imports the package, and runs the contract suite.
 
@@ -39,7 +46,9 @@ Default topology:
 - **Optional builders:** Claude Sonnet, Grok, additional Codex identities, and future runtimes.
 - **Mechanical verification:** deterministic gates establish facts before expensive model judgment.
 
-Concrete model IDs are configuration, not architecture.
+Concrete model IDs are configuration, not architecture. The orchestrator may
+request roles and capability floors; dispatch selects only among configured,
+strict-verified workers that satisfy those requirements and current capacity.
 
 ## Install into a project
 
@@ -65,7 +74,7 @@ and ambiguous dual installations require an explicit upgrade or handover path.
 4. Maker != checker unless a human explicitly overrides.
 5. Mechanical facts are established mechanically before model judgment.
 6. Strict CONTROL-style single-writer orchestration is preferred for verified builders.
-7. Switching HEADs is an explicit validated handover; onboarding never silently takes control.
+7. Initial HEAD activation is explicit; onboarding never silently takes control. Cross-system handover remains a separately gated future capability.
 8. Safety/autonomy changes use an ask-and-verify posture.
 9. Significant model sessions are bounded and ledgered where runtime data permits.
 10. Existing DEVDEPARTMENT projects are adapted, never overwritten.

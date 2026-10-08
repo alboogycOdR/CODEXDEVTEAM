@@ -1,6 +1,6 @@
 """Deterministic assignment planning; runtime launch remains an adapter concern."""
 
-from dataclasses import replace
+from dataclasses import field, replace
 from dataclasses import dataclass
 import json
 import math
@@ -39,9 +39,10 @@ class WorkerReadiness:
 
 @dataclass(frozen=True, slots=True)
 class TaskClassPolicy:
-    """Map explicit task classes to configured minimum capability labels."""
+    """Map task classes to configured capability floors and logical worker roles."""
 
     capability_floors: Mapping[str, str]
+    roles: Mapping[str, str] = field(default_factory=dict)
 
     def __post_init__(self) -> None:
         if not isinstance(self.capability_floors, Mapping):
@@ -53,6 +54,14 @@ class TaskClassPolicy:
                for task_class, floor in rules.items()):
             raise ValueError("task-class rules require lowercase class keys and capability labels")
         object.__setattr__(self, "capability_floors", MappingProxyType(rules))
+        role_rules = dict(self.roles)
+        if (not set(role_rules).issubset(rules)
+                or any(not isinstance(task_class, str)
+                       or not isinstance(role, str)
+                       or not re.fullmatch(r"[A-Za-z][A-Za-z0-9_.-]{0,63}", role)
+                       for task_class, role in role_rules.items())):
+            raise ValueError("task-class role rules must map configured classes to valid roles")
+        object.__setattr__(self, "roles", MappingProxyType(role_rules))
 
     def floor_for(self, task_class: str | None, *, fallback: str | None = None) -> str | None:
         if task_class is None:
@@ -62,14 +71,25 @@ class TaskClassPolicy:
         except KeyError as exc:
             raise DispatchError(f"task class has no configured routing rule: {task_class}") from exc
 
+    def role_for(self, task_class: str | None, *, fallback: str) -> str:
+        if task_class is None:
+            return fallback
+        self.floor_for(task_class)
+        return self.roles.get(task_class, fallback)
+
     @classmethod
     def from_dict(cls, data: dict) -> "TaskClassPolicy":
-        if not isinstance(data, dict) or set(data) != {"capability_floors"}:
-            raise ValueError("task-class policy requires exactly capability_floors")
+        if (not isinstance(data, dict)
+                or set(data) - {"capability_floors", "roles"}
+                or "capability_floors" not in data):
+            raise ValueError("task-class policy requires capability_floors and optional roles")
         floors = data["capability_floors"]
         if not isinstance(floors, dict):
             raise ValueError("capability_floors must be an object")
-        return cls(floors)
+        roles = data.get("roles", {})
+        if not isinstance(roles, dict):
+            raise ValueError("task-class roles must be an object")
+        return cls(floors, roles)
 
     @classmethod
     def from_file(cls, path: str | Path) -> "TaskClassPolicy":
@@ -81,7 +101,10 @@ class TaskClassPolicy:
         return cls.from_dict(data)
 
     def to_dict(self) -> dict:
-        return {"capability_floors": dict(self.capability_floors)}
+        result = {"capability_floors": dict(self.capability_floors)}
+        if self.roles:
+            result["roles"] = dict(self.roles)
+        return result
 
 
 @dataclass(frozen=True, slots=True)

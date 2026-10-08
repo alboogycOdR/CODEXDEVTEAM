@@ -24,13 +24,16 @@ from .host_commit import (CommitLimits, HostCommitResult, QuiescenceProof,
                           quarantine_out_of_scope_changes, validate_owned_retry_worktree)
 from .memory import EvidenceMemory, FactInjection, render_fact_injection
 from .process_identity import ProcessIdentity, observe_process_identity
+from .protocol import TaskRecord
 from .registry import WorkerRegistry
 from .runtime import InvocationRequest, InvocationResult, request_for_worker
 from .fast_tier import FastTierRunner
+from .gate import GateRunner
 from .lease_guard import HeadLeaseGuard
 from .review import parse_review_verdict
 from .state import HeadLease, LeaseError, StateStore
 from .tasks import TaskState
+from .territory import normalize_repo_path
 from .worktrees import GitWorktreeManager
 
 
@@ -54,6 +57,7 @@ class SupervisorPolicy:
     task_class_policy: TaskClassPolicy | None = None
     invocation_stale_after_seconds: float = 60.0
     plan_archive_interval_seconds: float | None = None
+    ignored_paths_allowlist: tuple[str, ...] = ()
 
     def __post_init__(self) -> None:
         if not isinstance(self.role, str) or not self.role.strip():
@@ -80,6 +84,12 @@ class SupervisorPolicy:
                      or not math.isfinite(self.plan_archive_interval_seconds)
                      or self.plan_archive_interval_seconds <= 0)):
             raise ValueError("plan_archive_interval_seconds must be null or finite and positive")
+        if (not isinstance(self.ignored_paths_allowlist, tuple)
+                or any(not isinstance(path, str) or not path.strip()
+                       for path in self.ignored_paths_allowlist)):
+            raise ValueError("ignored_paths_allowlist must be a tuple of non-empty path patterns")
+        for path in self.ignored_paths_allowlist:
+            normalize_repo_path(path)
 
 
 @dataclass(frozen=True, slots=True)
@@ -108,6 +118,16 @@ class TaskCheckerCycleResult:
     task_id: str
     checker_id: str
     invocation: InvocationResult
+
+
+@dataclass(frozen=True, slots=True)
+class MakerCloseoutResult:
+    """Durable maker, gate, and independent review evidence for one task."""
+
+    maker: TaskInvocationCycleResult
+    gate: GateResult | None
+    checker: TaskCheckerCycleResult | None
+    review_applied: bool
 
 
 @dataclass(frozen=True, slots=True)
@@ -339,6 +359,9 @@ class Supervisor:
                 raise DispatchError("task has a class but supervisor has no task-class policy")
             class_floor = (self.policy.task_class_policy.floor_for(task.task_class)
                            if self.policy.task_class_policy is not None else None)
+            task_role = (self.policy.task_class_policy.role_for(
+                task.task_class, fallback=self.policy.role)
+                if self.policy.task_class_policy is not None else self.policy.role)
             floors = [floor for floor in
                       (self.policy.required_capability_floor, class_floor) if floor is not None]
             task_floor = floors[0] if floors else None
@@ -350,7 +373,7 @@ class Supervisor:
                 task_floor = max(floors, key=order.index)
             workers = eligible_workers(
                 self.registry, machine_id=self.policy.machine_id,
-                require_strict=self.policy.require_strict, role=self.policy.role,
+                require_strict=self.policy.require_strict, role=task_role,
                 capacity=capacity_snapshot, now=current,
                 required_capability_floor=task_floor,
             )
@@ -499,7 +522,10 @@ class Supervisor:
         Runtime operations remain synchronous and bounded by their invocation
         timeout. Setting ``stop_event`` stops subsequent cycles; a running
         invocation finishes or reaches its configured timeout first. Callers
-        can also park through HEAD mode to prevent later claims.
+        can also park through HEAD mode to prevent later claims. After each
+        maker cycle, this loop requires every launched task to have a durable
+        done, blocked, or pending disposition. It records and stops on missing
+        gate/review closeout rather than dispatching another batch.
         """
         if not callable(cycle_inputs) or not callable(cycle_id_prefix):
             raise ValueError("cycle_inputs and cycle_id_prefix must be callable")
@@ -575,6 +601,21 @@ class Supervisor:
                 prefix = cycle_id_prefix(tick)
                 if not isinstance(prefix, str) or not prefix.strip():
                     raise ValueError("cycle_id_prefix must return non-empty text")
+                preexisting_active = [
+                    task for task in self.store.list_tasks()
+                    if task.state in {TaskState.CLAIMED, TaskState.NEEDS_REVIEW}
+                ]
+                if preexisting_active:
+                    unresolved = [{"task_id": task.task_id, "state": task.state.value}
+                                  for task in preexisting_active]
+                    self.store.record_event(
+                        lease, f"continuous-preexisting-active:{prefix}:{tick}",
+                        {"type": "supervisor.continuous_preexisting_active_tasks",
+                         "cycle_id": f"{prefix}:{tick}", "tasks": unresolved},
+                        now=inputs.get("now"),
+                    )
+                    reason = "active_tasks_require_recovery"
+                    break
                 result = self.run_dispatch_and_launch_cycle(
                     lease, cycle_id=f"{prefix}:{tick}", notifier=notifier,
                     notification_limit=notification_limit,
@@ -585,9 +626,49 @@ class Supervisor:
                 completed += 1
                 last_cycle = result
                 if on_cycle is not None:
-                    on_cycle(result)
+                    try:
+                        on_cycle(result)
+                    except Exception as exc:
+                        failed_tasks = []
+                        for maker in result.makers:
+                            task = self.store.get_task(maker.task_id)
+                            failed_tasks.append({
+                                "task_id": maker.task_id,
+                                "state": "missing" if task is None else task.state.value,
+                            })
+                        failure_type = type(exc).__name__
+                        if not re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]{0,79}", failure_type):
+                            failure_type = "Exception"
+                        self.store.record_event(
+                            lease, f"continuous-closeout-failed:{prefix}:{tick}",
+                            {"type": "supervisor.continuous_closeout_failed",
+                             "cycle_id": result.dispatch.cycle_id,
+                             "failure_type": failure_type, "tasks": failed_tasks},
+                            now=inputs.get("now"),
+                        )
+                        reason = "closeout_failed"
+                        break
                 if guard is not None:
                     guard.raise_if_lost()
+                unresolved = []
+                for maker in result.makers:
+                    task = self.store.get_task(maker.task_id)
+                    if task is None:
+                        unresolved.append({"task_id": maker.task_id, "state": "missing"})
+                    elif task.state not in {
+                            TaskState.DONE, TaskState.BLOCKED, TaskState.PENDING}:
+                        unresolved.append({"task_id": maker.task_id,
+                                           "state": task.state.value})
+                if unresolved:
+                    self.store.record_event(
+                        lease, f"continuous-closeout-incomplete:{prefix}:{tick}",
+                        {"type": "supervisor.continuous_closeout_incomplete",
+                         "cycle_id": result.dispatch.cycle_id,
+                         "tasks": unresolved},
+                        now=inputs.get("now"),
+                    )
+                    reason = "closeout_incomplete"
+                    break
                 if stop_event.is_set():
                     reason = "stop_requested"
                     break
@@ -709,6 +790,86 @@ class Supervisor:
             )
         return replace(cycle, control_applied=control["applied"],
                        control_rejected=control["rejected"])
+
+    def closeout_maker_with_checker(
+            self, lease: HeadLease, cycle: TaskInvocationCycleResult, *,
+            gate_runner: GateRunner, base_ref: str,
+            commands: Mapping[str, tuple[str, ...] | list[str] | None],
+            checker_id: str,
+            checker_prompt: str | Callable[[TaskRecord, GateResult], str],
+            adapters: Mapping[str, InvocationAdapter],
+            gate_attempt_event_id: str, checker_invocation_id: str,
+            review_event_id: str, allowed_environment: tuple[str, ...] = (),
+            gate_timeout_seconds: float = 1800.0,
+            checker_timeout_seconds: float = 900.0,
+            memory: EvidenceMemory | None = None,
+            project_root: str | Path | None = None,
+            now: float | None = None) -> MakerCloseoutResult:
+        """Run the exact-SHA gate and independent checker/review in order.
+
+        A refused or missing host commit is never sent to the gate. Failed gates
+        and checker/review failures remain open for the continuous runner's
+        closeout guard to stop and escalate. This method performs one review
+        attempt; it does not silently rework or redispatch the maker.
+        """
+        if not isinstance(cycle, TaskInvocationCycleResult):
+            raise ValueError("maker cycle is required")
+        if not isinstance(gate_runner, GateRunner):
+            raise ValueError("gate_runner must be a configured GateRunner")
+        if not isinstance(base_ref, str) or not base_ref.strip():
+            raise ValueError("base_ref is required")
+        if not isinstance(checker_prompt, str) and not callable(checker_prompt):
+            raise ValueError("checker_prompt must be text or a gate-bound prompt builder")
+        for label, value in (("gate_attempt_event_id", gate_attempt_event_id),
+                             ("checker_invocation_id", checker_invocation_id),
+                             ("review_event_id", review_event_id)):
+            if not isinstance(value, str) or not value.strip():
+                raise ValueError(f"{label} is required")
+        task = self.store.get_task(cycle.task_id)
+        if task is None:
+            raise ValueError("maker task is missing from authoritative state")
+        if (cycle.host_commit is None or cycle.host_commit.status != "committed"
+                or not cycle.host_commit.sha):
+            if task.state is TaskState.BLOCKED:
+                return MakerCloseoutResult(cycle, None, None, False)
+            raise ValueError("gate closeout requires a successful host commit")
+
+        active_tasks = tuple(self.store.list_tasks())
+        open_task_ids = tuple(sorted(
+            item.task_id for item in active_tasks if item.state is not TaskState.DONE
+        ))
+        gate = gate_runner.run(
+            task, cycle.worktree_path,
+            expected_sha=cycle.host_commit.sha, base_ref=base_ref,
+            commands=commands, allowed_environment=allowed_environment,
+            timeout_seconds=gate_timeout_seconds, open_task_ids=open_task_ids,
+            active_tasks=active_tasks,
+        )
+        finalized = self.finalize_maker_gate(
+            lease, cycle, gate, attempt_event_id=gate_attempt_event_id,
+            project_root=project_root, now=now,
+        )
+        if gate.status != "passed":
+            return MakerCloseoutResult(finalized, gate, None, False)
+        current = self.store.get_task(cycle.task_id)
+        if current is None or current.state is not TaskState.NEEDS_REVIEW:
+            return MakerCloseoutResult(finalized, gate, None, False)
+        effective_checker_prompt = (checker_prompt(current, gate)
+                                    if callable(checker_prompt) else checker_prompt)
+        if not isinstance(effective_checker_prompt, str) or not effective_checker_prompt.strip():
+            raise ValueError("gate-bound checker prompt must return non-empty text")
+        checker = self.invoke_checker(
+            lease, cycle.task_id, checker_id, gate=gate,
+            prompt=effective_checker_prompt, working_directory=cycle.worktree_path,
+            adapters=adapters, invocation_id=checker_invocation_id,
+            timeout_seconds=checker_timeout_seconds,
+            allowed_environment=allowed_environment, memory_injection=None, now=now,
+        )
+        applied = self.apply_checker_output(
+            lease, checker, gate=gate, event_id=review_event_id, memory=memory,
+            project_root=project_root, now=now,
+        )
+        return MakerCloseoutResult(finalized, gate, checker, applied)
 
     def invoke_checker(self, lease: HeadLease, task_id: str, checker_id: str, *,
                        gate: GateResult, prompt: str, working_directory: str | Path,
@@ -877,19 +1038,43 @@ class Supervisor:
         return applied
 
     def requeue_changes_requested_task(self, lease: HeadLease, task_id: str, *,
-                                       event_id: str, now: float | None = None) -> bool:
-        """Return a reviewed task to its same maker, gated by the latest review."""
+                                       event_id: str, max_rework_attempts: int = 1,
+                                       now: float | None = None) -> bool:
+        """Requeue only within a bounded number of checker-requested revisions.
+
+        Once the task exceeds the configured cap, it remains open and in
+        progress, a durable exhaustion event is recorded, and no new maker
+        claim is created. Human recovery is then required.
+        """
         if self.store.get_supervisor_mode()["mode"] != "running":
             raise ValueError("task requeue requires supervisor running mode")
+        if (isinstance(max_rework_attempts, bool)
+                or not isinstance(max_rework_attempts, int)
+                or max_rework_attempts < 0):
+            raise ValueError("max_rework_attempts must be a non-negative integer")
         task = self.store.get_task(task_id)
         if task is None or task.state is not TaskState.IN_PROGRESS or not task.assigned_worker:
             raise ValueError("only an in-progress assigned task can be requeued")
-        reviews = [event["payload"] for event in self.store.events()
-                   if event["payload"].get("type") == "task.reviewed"
-                   and event["payload"].get("task_id") == task_id]
+        review_events = [event for event in self.store.events()
+                         if event["payload"].get("type") == "task.reviewed"
+                         and event["payload"].get("task_id") == task_id]
+        reviews = [event["payload"] for event in review_events]
         if (not reviews or reviews[-1].get("decision") != "changes_requested"
                 or reviews[-1].get("maker_identity") != task.maker_identity):
             raise ValueError("requeue requires the latest task review to request changes")
+        rework_count = sum(review.get("decision") == "changes_requested" for review in reviews)
+        if rework_count > max_rework_attempts:
+            latest_review_event_id = review_events[-1]["event_id"]
+            self.store.record_event(
+                lease, event_id,
+                {"type": "supervisor.rework_limit_reached", "task_id": task_id,
+                 "max_rework_attempts": max_rework_attempts,
+                 "changes_requested_count": rework_count,
+                 "latest_review_event_id": latest_review_event_id,
+                 "task_state": task.state.value},
+                now=now,
+            )
+            return False
         if not task.maker_identity or task.maker_identity.get("unit_id") != task.assigned_worker:
             raise ValueError("requeue requires the original maker identity snapshot")
         if any(other.task_id != task_id and other.assigned_worker == task.assigned_worker
@@ -974,6 +1159,7 @@ class Supervisor:
                     worktrees.repository, worktree, task,
                     task_branch=f"codexdevteam/{task.task_id}",
                     expected_parent=worktree_info.head,
+                    ignored_allowlist=self.policy.ignored_paths_allowlist,
                 )
             except Exception as exc:
                 self.store.transition_task(
@@ -1043,12 +1229,16 @@ class Supervisor:
                 )
             except LeaseError:
                 raise
-            except Exception:
+            except Exception as exc:
                 finished_at = time.time()
+                failure_type = type(exc).__name__
+                if not re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]{0,79}", failure_type):
+                    failure_type = "Exception"
                 result = InvocationResult(
                     invocation_id, task_id, "maker", worker.identity.unit_id,
                     worker.identity.runtime, worker.identity.model, "launch_failed", None,
-                    max(0.0, finished_at - started_at), "", "runtime adapter failed",
+                    max(0.0, finished_at - started_at), "",
+                    f"runtime adapter raised {failure_type}",
                     False, hashlib.sha256(b"runtime adapter failed").hexdigest(),
                     started_at, finished_at,
                     process_tree_cancel_method="runtime_adapter_failure",
@@ -1080,7 +1270,8 @@ class Supervisor:
                     invocation_id=invocation_id,
                     quiescence=proof,
                     limits=CommitLimits(
-                        ignored_allowlist=(".codexdevteam/control",)),
+                        ignored_allowlist=(".codexdevteam/control",
+                                           *self.policy.ignored_paths_allowlist)),
                 )
             else:
                 commit_result = HostCommitResult(
@@ -1121,6 +1312,7 @@ class Supervisor:
                         task_branch=f"codexdevteam/{task.task_id}",
                         expected_parent=worktree_info.head, invocation_id=invocation_id,
                         paths=commit_result.paths,
+                        ignored_allowlist=self.policy.ignored_paths_allowlist,
                     )
                     retryable_ownership_refusal = True
                 except Exception as exc:

@@ -4,9 +4,16 @@ Kernel policy stays provider-neutral; runtime adapters and bounded supervisor
 orchestration remain explicit opt-in components.
 """
 
-__version__ = "0.1.0"
+__version__ = "0.2.0"
 
 from .identity import WorkerIdentity
+from .host_config import WindowsHostConfig
+from .host_runtime import HostRuntimeBindings, build_gate_runner, load_host_runtime
+from .host_runner import (build_host_cycle_inputs, closeout_host_cycle,
+                          activate_fresh_host, park_configured_host,
+                          request_host_stop, run_configured_host_loop,
+                          watch_host_stop_request)
+from .prompts import render_checker_prompt, render_maker_prompt
 from .tasks import TaskState, allowed_transition
 from .territory import TerritoryDecision, decide_write, validate_grant
 from .firewall import TerritoryPolicy, WriteAuthorization
@@ -28,7 +35,7 @@ from .dispatch import (CapacityObservation, DispatchError, TaskClassPolicy, assi
                        eligible_workers, identity_snapshot, worker_readiness,
                        WorkerReadiness)
 from .supervisor import (ContinuousSupervisorResult, EscalationNotifier,
-                         NotificationCycleResult, Supervisor,
+                         MakerCloseoutResult, NotificationCycleResult, Supervisor,
                          SupervisorCycleResult, SupervisorLaunchCycleResult,
                          SupervisorPolicy, TaskInvocationCycleResult,
                          TaskCheckerCycleResult)
@@ -64,6 +71,19 @@ from .plan_archive import (ArchiveConflict, ArchiveResult, ArchivedBlock,
 __all__ = [
     "__version__",
     "WorkerIdentity",
+    "WindowsHostConfig",
+    "HostRuntimeBindings",
+    "load_host_runtime",
+    "build_gate_runner",
+    "build_host_cycle_inputs",
+    "closeout_host_cycle",
+    "run_configured_host_loop",
+    "park_configured_host",
+    "activate_fresh_host",
+    "request_host_stop",
+    "watch_host_stop_request",
+    "render_maker_prompt",
+    "render_checker_prompt",
     "TaskState",
     "allowed_transition",
     "TerritoryDecision",
@@ -115,6 +135,7 @@ __all__ = [
     "SupervisorCycleResult",
     "SupervisorLaunchCycleResult",
     "NotificationCycleResult",
+    "MakerCloseoutResult",
     "EscalationNotifier",
     "TaskInvocationCycleResult",
     "TaskCheckerCycleResult",

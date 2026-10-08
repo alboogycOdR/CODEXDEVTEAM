@@ -286,7 +286,7 @@ See
 - [x] Centralize role -> model/effort policy.
 - [x] Implement bounded headless invocation + ledger.
 - [x] Implement exclusive HEAD lease.
-- [deferred to v0.2] Implement controlled DEVDEPARTMENT <-> CODEXDEVTEAM handover.
+- [deferred beyond v0.2] Implement controlled DEVDEPARTMENT <-> CODEXDEVTEAM handover.
 - Handover source/target matrix, operational evidence requirements, an incomplete hash-bound map-template command, a read-only task-map preview, and lease-fenced inactive staging into an empty target state store are documented in `docs/HANDOVER_MATRIX.md`; execution still lacks incumbent process fencing, durable activation, and reverse transfer.
 - [x] Prove maker != checker enforcement with mixed runtimes.
 
@@ -333,7 +333,7 @@ Derived from TIERED_ROUTING_AND_MEMORY_2026-09:
 - [x] document the current CODEXDEVTEAM/DEVDEPARTMENT compatibility-version matrix;
 - [x] add versioned executable metadata-compatibility gates that fail closed without implying activation;
 - [x] define the safe handover migration matrix and the pinned Wave E refusal reasons;
-- [deferred to v0.2] verify process-fenced handover, state translation, and reverse transfer on a real project.
+- [deferred beyond v0.2] verify process-fenced handover, state translation, and reverse transfer on a real project.
 
 ## Phase 6 — Pilot
 
@@ -341,11 +341,239 @@ Derived from TIERED_ROUTING_AND_MEMORY_2026-09:
 - Disposable Git-project integration coverage now spans inactive install, hook decisions, CONTROL, test evidence, gate, and review, but uses fixture runtime/checker receipts and does not satisfy the live pilot.
 - A live Codex disposable TextTidy utility pilot reached `done` at `a664233e4b5470ebe53a47b0a05ed32849e944b7` with a passing exact-SHA gate and independent checker approval. The Windows host committed the maker's owned-path change and ran the gate because the Codex sandbox could not write shared `.git` metadata. The pilot and deterministic Windows lifecycle regression are evidence for host commit, exact-SHA gate, and independent review; direct hook activation tracing remains open. Details are in `docs/RUNTIME_SMOKE.md`.
 - The Windows host-commit boundary is wired into supervisor cycles, gate finalization requires the exact committed SHA, and refused CONTROL is invocation-bound and archived. Refused out-of-scope files are quarantined in host-owned Git metadata and restored out of the worktree; one bounded retry is allowed, then the task is blocked with `OWNERSHIP_CONFLICT`. Windows regressions cover refusal, quarantine, retry, stale-report rejection, and cross-task isolation. The full local Windows contract suite passes (**275 passed, 8 skipped**). Hosted branch-head CI run [37185171206](https://github.com/alboogycOdR/CODEXDEVTEAM/actions/runs/37185171206) passed all Ubuntu/Windows × Python 3.11/3.12 jobs. Supported supervised maker commits are Windows-only; Linux is CI coverage and commits fail closed without a verified Windows Job Object proof.
-- [deferred to v0.2] Hand an existing DEVDEPARTMENT project to CODEXDEVTEAM and back.
+- [deferred beyond v0.2] Hand an existing DEVDEPARTMENT project to CODEXDEVTEAM and back.
 - [x] Verify no duplicate claims/reviews under lease contention across two store connections.
 - [deferred beyond v0.1] Measure first-pass rate, review sessions, gate rejection rate and model spend.
 - A `measure_pilot()` report now exposes these metrics from verified review/gate receipts; real model spend and operational sample data are still required to complete the measurement.
-- [ ] Tag v0.1 after the fresh-project core is reviewed and merged. DEVDEPARTMENT handover and reverse transfer, including process-fencing evidence, are explicitly deferred to v0.2.
+- [x] Tag v0.1 after the fresh-project core was reviewed and merged: `v0.1.0` points to merge commit `bfd2f29a5bf08927b57228209617e94b88ddf0b2` (2026-10-04). DEVDEPARTMENT handover and reverse transfer, including process-fencing evidence, are deferred beyond the standalone v0.2 objective.
+
+## Phase 7 — v0.2 standalone unattended development
+
+v0.2 is complete when a fresh Windows project can start from a project brief,
+have Codex produce and mechanically validate its own task plan, select eligible
+configured builders, and run a bounded development workflow to reviewed
+completion or durable escalation without an operator advancing each task.
+DEVDEPARTMENT remains the behavioral reference for supervisor and dispatch
+semantics. Existing-project handover, sidecar activation, and reverse transfer
+are not v0.2 requirements.
+
+The acceptance pilot uses a newly initialized disposable Git project. It does
+not modify a DEVDEPARTMENT checkout or rely on a pre-seeded task plan. The
+operator supplies the brief, project boundary, budget, and one-time activation
+authorization; after activation, the system owns planning and task progression.
+
+- [x] Harden the continuous runner to refuse dispatch when pre-existing
+  `claimed` or `needs_review` tasks need restart recovery, and to journal
+  `supervisor.continuous_closeout_incomplete` when a cycle callback leaves a
+  maker unresolved. Focused regressions pass. A full Windows run found one
+  interaction with the existing in-progress recovery path; the guard was
+  narrowed and focused coverage now passes.
+- [x] Add `Supervisor.closeout_maker_with_checker()` to sequence a successful
+  host commit through the exact-SHA gate, CONTROL drain, independent checker,
+  and review ledger. A Windows integration regression reaches `DONE` only
+  after the checker approves. Failed gates do not launch a checker; failed or
+  changes-requested work remains open for recovery. This performs one review
+  attempt and does not automate bounded rework or continuous host lifecycle.
+- [x] Bound checker-requested rework in `requeue_changes_requested_task()`.
+  The configurable cap defaults to one retry; exceeding it journals
+  `supervisor.rework_limit_reached` and refuses another claim. Regression
+  confirms the task stays open for human recovery. The Windows host now drives
+  the bounded maker/review loop around this policy.
+- [x] Implement the Windows unattended host entrypoint and lifecycle around
+  the existing supervisor APIs: explicit activation, continuous lease-safe
+  operation, park/resume, clean stop/status, and restart recovery. It must run
+  the complete maker -> host commit -> exact-SHA gate -> independent checker ->
+  review path, apply a bounded rework policy, and persist or escalate every
+  cycle before starting another. A callback that omits closeout cannot count as
+  unattended operation. Keep the host parked until explicit activation.
+  - [x] Define the inactive, project-relative Windows host configuration
+    contract and `host-config` inspection command. The runner and controls are
+    tracked in the following items.
+  - [x] Define strict timestamped capacity snapshot ingestion; the host must
+    still connect a real configured capacity source before dispatch.
+  - [x] Connect a real capacity source that refreshes worker availability
+    without manual edits to `capacity.json`; preserve fail-closed behavior when
+    the source is unavailable, stale, or cannot distinguish model capacity.
+    - [x] Implement a bounded Windows host adapter for Codex app-server
+      `account/rateLimits/read`; it accepts only the single shared `codex`
+      bucket and refuses unknown or model-specific buckets. Unit tests cover
+      denial, exhausted windows, malformed/missing responses, and ambiguity.
+    - [x] Run the exact app-server subprocess adapter against the live Windows
+      Codex session and record redacted evidence before closing the capacity
+      source release gate. A disposable Windows `host-preflight` read the live
+      quota, reported both configured workers ready, and left the project
+      parked without dispatch (2026-10-07). A later bounded one-task Windows
+      acceptance then used the live source through gate, checker, and integration;
+      see `docs/RUNTIME_SMOKE.md`.
+  - [x] Add deterministic maker/checker prompt rendering from authoritative
+    task records, including ownership/acceptance and exact-SHA review binding.
+  - [x] Add a side-effect-free host binding loader for strict worker registry,
+    Codex runtime adapters, and concrete verification commands; unsupported
+    runtimes fail closed.
+  - [x] Add a read-only host preflight command for binding and capacity readiness.
+  - [x] Set supervised Codex CLI approval handling to `never` so actions that
+    need operator approval fail promptly; keep the configured sandbox active.
+  - [x] Allow closeout to render the checker prompt from the passed gate's
+    exact SHA and fingerprint.
+  - [x] Compose bounded host cycle inputs and mandatory maker gate/checker
+    closeout helpers. Restart recovery is tracked below.
+  - [x] Add a Windows-only bounded host loop that requires an already-running
+    lease and performs closeout before the supervisor advances.
+  - [x] Add explicit fresh-project activation that acquires the exclusive HEAD
+    lease and refuses DEVDEPARTMENT sidecars.
+  - [x] Add `host-run` as the Windows command entrypoint; it requires explicit
+    confirmation and an existing task database, and returns parked on normal
+    stop or completed bounded run.
+  - [x] Add inactive fresh-project PLAN bootstrap with atomic task seeding,
+    PLAN-hash provenance, historical archive IDs, and refusal of active or
+    completed legacy tasks without CODEXDEVTEAM review receipts. This consumes
+    an existing PLAN and does not yet satisfy brief-to-plan setup.
+  - [x] Verify between cycles that PLAN's kernel task fields and archive IDs
+    still match authoritative state, while allowing only host-projected state
+    and assignment changes.
+  - [x] Add a lease-authorized stop request that lets current closeout finish,
+    then parks mode and releases the lease. The request is local to this host;
+    cross-project incumbent fencing remains outstanding.
+  - [x] Add a read-only `host-status` report for supervisor mode, lease expiry,
+    running maker records, and task-state totals.
+  - [x] Drive checker-requested work through the existing durable review ledger
+    and bounded requeue policy, passing verified rationale/evidence to the
+    same maker. Restart recovery is tracked below.
+- [x] Add brief-to-plan bootstrap: Codex drafts a complete task plan, and
+  mechanical validation checks task vocabulary, dependencies, acceptance
+  criteria, Owned_Paths, and Protected_Grants before creating authoritative
+  state. No task-by-task operator advancement is required after authorization.
+  - [x] Add `host-plan`: invoke the configured read-only planner candidate,
+    validate its strict task JSON with the canonical parser and protocol, reject
+    control-path ownership/dependency cycles, and create `PLAN.md` exclusively.
+    This writes no task state and does not activate HEAD.
+  - [x] Embed durable plan-generation provenance in `PLAN.md`, binding the
+    planner identity/runtime/model and invocation ID to brief, response, and
+    validated-plan hashes.
+  - [x] Connect brief planning, exclusive task-state bootstrap, explicit HEAD
+    activation, and supervised execution behind `host-run --brief` with separate
+    plan-write and activation confirmations. Contract tests cover this chain
+    with a fixture planner and host loop.
+  - [x] Capture an actual isolated Windows planner invocation using the
+    configured Codex model and bootstrap its two validated tasks while remaining
+    parked (`codexdevteam-v02-item2-pilot-ef0d1b8a583448838134514189cfa3f3`, 2026-10-06).
+- [x] Add orchestrator task-class routing over configured logical roles and
+  capability floors. The planner can request only classes in project policy;
+  host loading rejects absent/inactive roles, unknown floors, and checker-role
+  assignments. Dispatch still filters for strict verification, fresh capacity,
+  and independent maker/checker identities. The complete kernel contract suite
+  passes after this change.
+- [x] Implement restart recovery for the standalone Windows host using the
+  existing lease, invocation-liveness, and Windows Job Object evidence.
+  Interrupted work must be safely resumed or durably escalated before dispatch.
+  - [x] Add lease-authorized startup scanning, signed cancellation receipt
+    recovery, Windows Job Object reaping, durable escalation for interrupted
+    claimed/in-progress/review tasks, and park-before-dispatch behavior.
+  - [x] Add Windows lifecycle regressions for process-tree reaping success and
+    refusal when quiescence cannot be proved; verify preserved task branches.
+- [x] Define controlled integration of independently reviewed task branches
+  into the project branch, with post-integration mechanical verification and
+  rollback or escalation on conflicts.
+  - [x] Add exact-approved-SHA integration through a temporary worktree, a
+    post-integration configured gate, compare-and-swap project ref update,
+    PLAN preservation, and a recoverable host integration journal.
+  - [x] Connect approved closeout to integration and startup journal recovery;
+    merge conflicts and failed gates create durable escalation and stop the run.
+  - [x] Cover stale approvals, merge conflicts, failed post-integration gates,
+    successful integration, and recovery after a simulated stop between ref
+    advancement and PLAN restore.
+  - [x] Cover a concurrent target-ref change during gate execution; the
+    integration race regression confirms the external ref is preserved and
+    interrupted recovery records a durable escalation.
+- [x] Demonstrate unattended operation on a bounded representative task set
+  starting from a project brief: generate/validate the plan, dispatch
+  configured makers, run exact-SHA mechanical gates before independent review,
+  integrate accepted work, recover or escalate on failures, respect
+  budgets/timeouts, and reach a defined terminal state without an operator
+  advancing each task.
+  - [x] Complete one uninterrupted Windows run from a fresh brief through
+    three task integrations using strict Codex maker/checker identities. All
+    tasks were approved on first review; the host parked and released its lease
+    at its configured cycle bound. Record the evidence in `docs/RUNTIME_SMOKE.md`.
+- [x] Record live strict-verification evidence for every builder enabled in
+  the pilot, bound to its runtime and configured model. Do not infer a model's
+  capabilities from another model's receipt.
+  - [x] Capture live qualification evidence for `codex` / `gpt-6.1-sol` as
+    maker and `codex` / `gpt-6-sol` as independent checker on a disposable
+    one-task project. That initial qualification used a temporary non-strict
+    supervisor policy and was followed by the strict model-bound pilot evidence.
+  - [x] Run all three planned tasks with strict `codex` / `gpt-6.1-sol` maker
+    and independent strict `codex` / `gpt-6-sol` checker identities, exact-SHA
+    gates, and integration receipts. See `docs/RUNTIME_SMOKE.md`; this evidence
+    used the then-configured manual capacity snapshot. A later one-task
+    acceptance used the live app-server source for supervised execution and
+    completed its gate, independent review, and integration.
+- [x] Record first-pass rate, review sessions, gate rejection, escalations,
+  recovery outcomes, elapsed time, and usage/spend fields from verified
+  standalone pilot receipts. Report unavailable subscription-dollar spend as
+  unknown; keep optional fast-tier routing disabled until broader redacted
+  field evidence meets an agreed accuracy threshold.
+  - [x] The uninterrupted pilot recorded 3/3 first-pass approvals, 3 passed
+    gates, 0 gate rejections, 0 changes requested, 0 escalations, 0 active
+    invocations at close, elapsed time, and token usage for all 6 model calls.
+    Configured spend remains unknown because no pricing rates were configured;
+    see `docs/RUNTIME_SMOKE.md`. The reporting API now returns aggregate token
+    totals only when all invocation receipts contain complete counters, and
+    explicitly reports incomplete telemetry otherwise.
+  - [x] Record three approved reviews, three passing task gates, three
+    integrations, zero rework, zero recorded escalations, and the host restart
+    after the PLAN-integrity defect in the 2026-10-07 qualification. Invocation
+    token usage and configured spend remain unknown; capacity refresh was manual.
+  - [x] Re-run the read-only usage report against the acceptance project's
+    authoritative state database. It confirms complete counters for all six
+    calls: 727,363 input, 11,273 output, and 645,632 cached input tokens.
+    `cost_usd` remains null because no effective model rates were configured;
+    no subscription cost is inferred from API token prices. See
+    `docs/RUNTIME_SMOKE.md`.
+  - [x] Record a live-capacity one-task data point: 1/1 first-pass approval,
+    one passing exact-SHA gate, one integration, zero rework, zero open
+    escalations, and zero active invocations after parking. Maker and checker
+    receipts have complete counters (200,860 input, 2,149 output, 169,472
+    cached input tokens total); `cost_usd` remains null. This adds live-source
+    field evidence but is not a representative accuracy sample by itself.
+  - [x] Complete a separate three-task Windows run using live app-server
+    capacity. All 3 tasks passed exact-SHA gates, were approved on first review,
+    and integrated; there were 0 gate rejections, 0 rework requests, 0 open
+    escalations, and 0 active invocations after parking. All six maker/checker
+    receipts have complete token counters: 777,537 input, 9,995 output, and
+    691,456 cached input tokens; elapsed time from activation to park was
+    512 seconds. `cost_usd` remains null. The seven observed
+    tasks across manual-snapshot and live-capacity pilots are still a small,
+    simple-task sample; use no fast-tier routing until the release accuracy
+    threshold is explicitly set and the sample meets it. This closes the v0.2
+    standard-tier measurement report; fast-tier eligibility remains deferred.
+- [x] Pass hosted release CI on the final v0.2 candidate on Windows with the
+  supported Python versions. Run
+  [37691384320](https://github.com/alboogycOdR/CODEXDEVTEAM/actions/runs/37691384320)
+  passed on candidate commit `37765a273064fa506753cee17e3aec743bf72466` for
+  Windows and Linux compatibility jobs with Python 3.11 and 3.12. Linux remains
+  compatibility CI only and is not part of supervised maker execution.
+- [ ] Publish v0.2 release notes that state proven behavior, enabled runtimes,
+  host limitations, recovery steps, and any remaining parity gaps.
+  - [x] Finalize release notes against the bounded live pilot, strict-worker
+    receipts, and the known hosted-CI baseline. Set package/framework metadata
+    to `0.2.0` and verify the built wheel and all five installed entry points.
+    Publication remains part of the v0.2 release decision.
+
+### v0.2 release gates
+
+1. A new Git project bootstraps from a brief to a validated authoritative task
+   plan without hand-authored task blocks.
+2. The Codex orchestrator can request roles and capability floors while
+   dispatch stays constrained to configured strict-verified workers, fresh
+   capacity, and one active HEAD.
+3. The unattended pilot completes the full maker -> host commit -> gate ->
+   checker -> bounded rework -> integration workflow, or stops with durable
+   recovery/escalation evidence, without an operator advancing tasks.
+4. The pilot preserves maker/checker separation, respects configured
+   budgets/timeouts, and attributes each run to its configured runtime/model.
+5. The measured pilot report and Windows release CI pass; runbooks match the
+   evidence collected. v0.2 makes no DEVDEPARTMENT handover or return claim.
 
 ## Deferred until evidence justifies them
 

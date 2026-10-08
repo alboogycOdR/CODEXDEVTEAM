@@ -179,8 +179,10 @@ codexdevteam handover-stage --project <incumbent> --mapping <reviewed-map.json> 
 
 It creates or updates only the explicitly named CODEXDEVTEAM state database,
 prints `source_process_fenced: false` and `activation_authorized: false`, and
-leaves the incumbent PLAN and installation marker unchanged. Protect the state
-database with local repository excludes or place it outside the checkout.
+leaves the incumbent PLAN and installation marker unchanged. The CLI releases
+its temporary target HEAD lease after staging; the imported supervisor remains
+parked. Protect the state database with local repository excludes or place it
+outside the checkout.
 
 This is inactive state staging only. It does not inspect or fence the incumbent
 process tree, modify either installation marker, create an activation grant, or

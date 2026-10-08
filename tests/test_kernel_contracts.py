@@ -266,6 +266,14 @@ class RuntimeAdapterTests(unittest.TestCase):
         process.communicate.return_value = (stdout, stderr)
         return process
 
+    @staticmethod
+    def output_message_path(argv):
+        if "--output-last-message" in argv:
+            return Path(argv[argv.index("--output-last-message") + 1])
+        marker = "'--output-last-message' '"
+        command = argv[-1]
+        return Path(command.split(marker, 1)[1].split("'", 1)[0])
+
     def request(self, **overrides):
         values = {"invocation_id": "invoke-1", "task_id": "TASK-90", "purpose": "checker",
                   "identity": WorkerIdentity("reviewer", "reviewer", "high", "codex", "configured-model"),
@@ -421,7 +429,7 @@ class RuntimeAdapterTests(unittest.TestCase):
         process = self.process(stdout='{"type":"turn.completed"}')
 
         def launch(argv, **kwargs):
-            output_path = Path(argv[argv.index("--output-last-message") + 1])
+            output_path = self.output_message_path(argv)
             output_path.write_text("answer longer than limit", encoding="utf-8")
             return process
 
@@ -429,11 +437,19 @@ class RuntimeAdapterTests(unittest.TestCase):
         result = CodexExecAdapter("codex-test").invoke(self.request())
         argv = run.call_args.args[0]
         kwargs = run.call_args.kwargs
-        self.assertIn("configured-model", argv)
-        self.assertIn("--output-last-message", argv)
-        self.assertIn('model_reasoning_effort="high"', argv)
-        self.assertIn("read-only", argv)
-        self.assertEqual(argv[-1], "-")
+        command = argv[-1] if os.name == "nt" else " ".join(argv)
+        self.assertIn("configured-model", command)
+        self.assertIn("--output-last-message", command)
+        self.assertIn('approval_policy="never"', command)
+        self.assertIn('model_reasoning_effort="high"', command)
+        self.assertIn("read-only", command)
+        if os.name == "nt":
+            self.assertIn("'-'", command)
+            self.assertIn("-NonInteractive", argv)
+            self.assertTrue(command.startswith("& 'codex-test'"))
+            self.assertTrue(command.endswith("; exit $LASTEXITCODE"))
+        else:
+            self.assertEqual(argv[-1], "-")
         self.assertTrue(process.communicate.call_args.kwargs["input"].startswith(
             "Review the task result"))
         self.assertIn("CODEXDEVTEAM REVIEW BINDING",
@@ -443,6 +459,28 @@ class RuntimeAdapterTests(unittest.TestCase):
         self.assertEqual(len(result.stdout) + len(result.stderr), 12)
         self.assertEqual(result.status, "succeeded")
 
+    @patch.dict(os.environ, {"CODEX_CLI_PATH": r"C:\Codex\codex.exe"})
+    @patch("codexdevteam_kernel.runtime.subprocess.Popen")
+    def test_codex_adapter_preserves_cli_path_for_nested_tool_runtime(self, run):
+        run.return_value = self.process(stdout='{"type":"turn.completed"}')
+
+        CodexExecAdapter("codex-test").invoke(self.request())
+
+        self.assertEqual(run.call_args.kwargs["env"]["CODEX_CLI_PATH"],
+                         r"C:\Codex\codex.exe")
+
+    def test_powershell_launch_quotes_single_quotes_as_literal_arguments(self):
+        from codexdevteam_kernel.runtime import _powershell_launch_argv
+
+        with patch("codexdevteam_kernel.runtime.shutil.which",
+                   side_effect=lambda name: r"C:\Program Files\PowerShell\7\pwsh.exe"
+                   if name == "pwsh" else None):
+            argv = _powershell_launch_argv(["codex", "exec", "C:\\pilot's path", "-"])
+
+        self.assertEqual(argv[0], r"C:\Program Files\PowerShell\7\pwsh.exe")
+        self.assertIn("'C:\\pilot''s path'", argv[-1])
+        self.assertIn("'-'", argv[-1])
+
     @patch("codexdevteam_kernel.runtime.subprocess.Popen")
     def test_checker_uses_plain_last_message_and_keeps_usage_from_jsonl(self, popen):
         process = self.process(stdout=(
@@ -451,7 +489,7 @@ class RuntimeAdapterTests(unittest.TestCase):
         ))
 
         def launch(argv, **kwargs):
-            output_path = Path(argv[argv.index("--output-last-message") + 1])
+            output_path = self.output_message_path(argv)
             output_path.write_text('{"decision":"approved"}', encoding="utf-8")
             return process
 
@@ -462,6 +500,28 @@ class RuntimeAdapterTests(unittest.TestCase):
                          (12, 4, 3))
         self.assertEqual(result.status, "succeeded")
         self.assertFalse(Path(popen.call_args.kwargs["env"]["TMPDIR"]).exists())
+
+    @patch("codexdevteam_kernel.runtime.subprocess.Popen")
+    def test_head_planner_uses_final_message_instead_of_jsonl(self, popen):
+        process = self.process(stdout='{"type":"turn.completed"}\n')
+
+        def launch(argv, **kwargs):
+            output_path = self.output_message_path(argv)
+            output_path.write_text('{"protocol_version":1,"tasks":[]}', encoding="utf-8")
+            return process
+
+        popen.side_effect = launch
+        request = self.request(
+            purpose="head", task_id=None,
+            identity=WorkerIdentity("codex-head", "planner", "frontier", "codex",
+                                    "planner-model"),
+            review_sha=None, gate_fingerprint=None, output_limit_chars=1000,
+        )
+        result = CodexExecAdapter("codex-test").invoke(request)
+        self.assertEqual(result.stdout, '{"protocol_version":1,"tasks":[]}')
+        self.assertEqual(result.purpose, "head")
+        self.assertEqual(result.role, "planner")
+        self.assertEqual(result.status, "succeeded")
 
     @patch("codexdevteam_kernel.runtime.subprocess.Popen")
     def test_checker_fails_closed_when_codex_produces_no_last_message(self, popen):
@@ -969,10 +1029,13 @@ class DispatchTests(unittest.TestCase):
 
     def test_task_class_policy_maps_named_classes_and_rejects_unconfigured_classes(self):
         from codexdevteam_kernel import TaskClassPolicy
-        policy = TaskClassPolicy({"mechanical": "standard", "critical": "expert"})
+        policy = TaskClassPolicy({"mechanical": "standard", "critical": "expert"},
+                                 {"critical": "architecture"})
         self.assertEqual(TaskClassPolicy.from_dict(policy.to_dict()), policy)
         self.assertEqual(policy.floor_for("mechanical", fallback="advanced"), "standard")
         self.assertEqual(policy.floor_for(None, fallback="advanced"), "advanced")
+        self.assertEqual(policy.role_for("critical", fallback="implementation"), "architecture")
+        self.assertEqual(policy.role_for("mechanical", fallback="implementation"), "implementation")
         with self.assertRaisesRegex(DispatchError, "no configured routing rule"):
             policy.floor_for("novel")
 
@@ -999,6 +1062,53 @@ class SupervisorTests(unittest.TestCase):
     def tearDown(self):
         self.temp.cleanup()
 
+    def test_host_closeout_skips_gate_when_maker_has_no_commit(self):
+        from unittest.mock import patch
+        from codexdevteam_kernel.host_config import WindowsHostConfig
+        from codexdevteam_kernel.host_runtime import HostRuntimeBindings
+        from codexdevteam_kernel.host_runner import closeout_host_cycle
+        from codexdevteam_kernel.supervisor import (SupervisorCycleResult,
+                                                    SupervisorLaunchCycleResult,
+                                                    TaskInvocationCycleResult)
+
+        project = Path(self.temp.name)
+        task = TaskRecord("TASK-NO-COMMIT", "Leave failed maker for recovery",
+                          TaskState.IN_PROGRESS, "builder", "high", ("src/task.py",),
+                          maker_identity={"unit_id": "builder", "runtime": "codex",
+                                          "model": "builder-model"})
+        self.store.seed_task(self.lease, task, event_id="seed-no-commit", now=101)
+        invocation = InvocationResult(
+            "maker-no-commit", task.task_id, "maker", "builder", "codex",
+            "builder-model", "launch_failed", None, 1.0, "",
+            "runtime adapter raised RuntimeError", False,
+            hashlib.sha256(b"runtime adapter failed").hexdigest(), 101, 102,
+        )
+        maker = TaskInvocationCycleResult(task.task_id, "builder", str(project), invocation)
+        cycle = SupervisorLaunchCycleResult(
+            SupervisorCycleResult("no-commit:1", "running", (task.task_id,), {}),
+            (maker,),
+        )
+        config = WindowsHostConfig.from_dict(project, {
+            "protocol_version": 1,
+            "state_db": ".codexdevteam/state/state.sqlite",
+            "registry": ".codexdevteam/framework/registry.json",
+            "verification_config": ".codexdevteam/framework/verification.json",
+            "capacity_snapshot": ".codexdevteam/control/capacity.json",
+            "worktree_root": "../{project_name}-codexdevteam-worktrees",
+            "control_root": ".codexdevteam/control",
+            "logs_root": ".codexdevteam/logs",
+            "system_id": "test-system", "instance_id": "closeout-test",
+        })
+        bindings = HostRuntimeBindings(
+            self.registry, {}, {}, (), (), None, (),
+        )
+        with patch("codexdevteam_kernel.host_runner.GitWorktreeManager"):
+            closeouts = closeout_host_cycle(
+                self.supervisor, self.lease, cycle, config, bindings, None,
+                base_ref="unused",
+            )
+        self.assertEqual(closeouts, ())
+
     def test_requeue_requires_latest_changes_requested_review(self):
         task = TaskRecord("TASK-REQUEUE", "Repair reviewed task", TaskState.IN_PROGRESS,
                           "builder", "medium", ("src/**",), maker_identity={
@@ -1009,6 +1119,45 @@ class SupervisorTests(unittest.TestCase):
             self.supervisor.requeue_changes_requested_task(
                 self.lease, task.task_id, event_id="requeue-without-review", now=103)
         self.assertEqual(self.store.get_task(task.task_id).state, TaskState.IN_PROGRESS)
+
+    def test_rework_limit_records_exhaustion_without_requeueing_maker(self):
+        task = TaskRecord("TASK-REWORK-LIMIT", "Bound reviewed revisions",
+                          TaskState.IN_PROGRESS, "builder", "medium", ("src/**",),
+                          maker_identity={"unit_id": "builder", "runtime": "codex",
+                                          "model": "builder-model"})
+        self.store.seed_task(self.lease, task, event_id="seed-rework-limit", now=101)
+        self.store.set_supervisor_mode(self.lease, "running",
+                                       event_id="run-rework-limit", now=102)
+        review_payload = {"type": "task.reviewed", "task_id": task.task_id,
+                          "decision": "changes_requested",
+                          "maker_identity": task.maker_identity}
+        self.store.record_event(self.lease, "review-rework-limit-1",
+                                review_payload, now=103)
+        self.store.record_event(self.lease, "review-rework-limit-2",
+                                review_payload, now=104)
+
+        result = self.supervisor.requeue_changes_requested_task(
+            self.lease, task.task_id, event_id="rework-limit-reached",
+            max_rework_attempts=1, now=105)
+
+        self.assertFalse(result)
+        self.assertEqual(self.store.get_task(task.task_id).state, TaskState.IN_PROGRESS)
+        event = next(item for item in self.store.events()
+                     if item["event_id"] == "rework-limit-reached")
+        self.assertEqual(event["payload"], {
+            "type": "supervisor.rework_limit_reached",
+            "task_id": task.task_id,
+            "max_rework_attempts": 1,
+            "changes_requested_count": 2,
+            "latest_review_event_id": "review-rework-limit-2",
+            "task_state": "in_progress",
+        })
+        self.assertFalse(any(
+            item["payload"].get("type") == "task.transitioned"
+            and item["payload"].get("task_id") == task.task_id
+            and item["payload"].get("to") == "claimed"
+            for item in self.store.events()
+        ))
 
     def test_staged_historical_dependency_allows_dispatch_without_faking_done_task(self):
         task = TaskRecord("TASK-AFTER-HANDOVER", "Continue translated work",
@@ -1071,7 +1220,7 @@ class SupervisorTests(unittest.TestCase):
                                       "task_worktree_isolation", "post_run_territory_gate"],
         }
         registry = WorkerRegistry.from_dict({
-            "protocol_version": 1, "active": ["standard", "expert"], "head_candidate": None,
+            "protocol_version": 1, "active": ["standard", "expert", "architect"], "head_candidate": None,
             "capability_order": ["standard", "advanced", "expert"],
             "defined": {
                 "standard": {"role": "implementation", "capability_floor": "standard",
@@ -1080,6 +1229,9 @@ class SupervisorTests(unittest.TestCase):
                 "expert": {"role": "implementation", "capability_floor": "expert",
                            "runtime": "codex", "model": "expert-model", "control_mode": "strict",
                            "strict_verification": receipt("expert-model")},
+                "architect": {"role": "architecture", "capability_floor": "expert",
+                              "runtime": "codex", "model": "architect-model", "control_mode": "strict",
+                              "strict_verification": receipt("architect-model")},
             },
         })
         self.store.seed_task(self.lease, TaskRecord(
@@ -1093,16 +1245,18 @@ class SupervisorTests(unittest.TestCase):
         self.store.set_supervisor_mode(self.lease, "running", event_id="run-task-classes", now=102)
         policy = SupervisorPolicy(
             require_strict=True, require_capacity_observation=True,
-            task_class_policy=TaskClassPolicy({"mechanical": "standard", "critical": "expert"}),
+            task_class_policy=TaskClassPolicy(
+                {"mechanical": "standard", "critical": "expert"},
+                {"critical": "architecture"}),
         )
         supervisor = Supervisor(self.store, registry, policy)
         capacity = {unit: CapacityObservation(True, 1, observed_at=102)
-                    for unit in ("standard", "expert")}
+                    for unit in ("standard", "expert", "architect")}
         result = supervisor.run_dispatch_cycle(
             self.lease, cycle_id="task-class-cycle", capacity=capacity, now=103)
         self.assertEqual(result.assignments, ("TASK-CLASS-1", "TASK-CLASS-2"))
         self.assertEqual(self.store.get_task("TASK-CLASS-1").maker_identity["unit_id"], "standard")
-        self.assertEqual(self.store.get_task("TASK-CLASS-2").maker_identity["unit_id"], "expert")
+        self.assertEqual(self.store.get_task("TASK-CLASS-2").maker_identity["unit_id"], "architect")
 
     def test_fast_tier_quota_hint_restricts_dispatch_without_creating_capacity(self):
         from codexdevteam_kernel import FastTierRunner
@@ -1267,6 +1421,135 @@ class SupervisorTests(unittest.TestCase):
         )
         self.assertEqual(stopped.cycles_completed, 1)
         self.assertEqual(stopped.stop_reason, "stop_requested")
+
+    def test_continuous_supervisor_stops_when_maker_closeout_is_incomplete(self):
+        from threading import Event
+        from types import SimpleNamespace
+        from unittest.mock import patch
+        from codexdevteam_kernel.supervisor import (SupervisorCycleResult,
+                                                    SupervisorLaunchCycleResult)
+
+        task = TaskRecord("TASK-CLOSEOUT", "Require verified closeout",
+                          TaskState.IN_PROGRESS, None, "high", ("src/closeout.py",))
+        self.store.set_supervisor_mode(
+            self.lease, "running", event_id="run-closeout-incomplete", now=102,
+        )
+        cycle = SupervisorLaunchCycleResult(
+            SupervisorCycleResult("closeout:1", "running", (task.task_id,), {}),
+            (SimpleNamespace(task_id=task.task_id),),
+        )
+        inputs = {
+            "capacity": {}, "task_prompts": {}, "invocation_ids": {},
+            "base_ref": "unused", "worktrees": object(), "adapters": {}, "now": 103,
+        }
+        def launch_with_unclosed_task(*_args, **_kwargs):
+            self.store.seed_task(
+                self.lease, task, event_id="seed-closeout-incomplete", now=103,
+            )
+            return cycle
+
+        with patch.object(self.supervisor, "run_dispatch_and_launch_cycle",
+                          side_effect=launch_with_unclosed_task) as launch:
+            result = self.supervisor.run_continuous(
+                self.lease, cycle_inputs=lambda _tick: inputs,
+                cycle_id_prefix=lambda _tick: "closeout",
+                stop_event=Event(), interval_seconds=0.001, max_cycles=3,
+            )
+
+        self.assertEqual(result.cycles_completed, 1)
+        self.assertEqual(result.stop_reason, "closeout_incomplete")
+        launch.assert_called_once()
+        event = next(item for item in self.store.events()
+                     if item["event_id"] == "continuous-closeout-incomplete:closeout:1")
+        self.assertEqual(event["payload"], {
+            "type": "supervisor.continuous_closeout_incomplete",
+            "cycle_id": "closeout:1",
+            "tasks": [{"task_id": task.task_id, "state": "in_progress"}],
+        })
+
+    def test_continuous_supervisor_journals_closeout_callback_failure(self):
+        from threading import Event
+        from types import SimpleNamespace
+        from unittest.mock import patch
+        from codexdevteam_kernel.supervisor import (SupervisorCycleResult,
+                                                    SupervisorLaunchCycleResult)
+
+        task = TaskRecord("TASK-CLOSEOUT-ERROR", "Journal failed closeout",
+                          TaskState.IN_PROGRESS, None, "high", ("src/closeout.py",))
+        self.store.set_supervisor_mode(
+            self.lease, "running", event_id="run-closeout-error", now=102,
+        )
+        cycle = SupervisorLaunchCycleResult(
+            SupervisorCycleResult("closeout-error:1", "running", (task.task_id,), {}),
+            (SimpleNamespace(task_id=task.task_id),),
+        )
+        inputs = {
+            "capacity": {}, "task_prompts": {}, "invocation_ids": {},
+            "base_ref": "unused", "worktrees": object(), "adapters": {}, "now": 103,
+        }
+
+        def launch_with_unclosed_task(*_args, **_kwargs):
+            self.store.seed_task(
+                self.lease, task, event_id="seed-closeout-error", now=103,
+            )
+            return cycle
+
+        def fail_closeout(_result):
+            raise ValueError("private closeout detail")
+
+        with patch.object(self.supervisor, "run_dispatch_and_launch_cycle",
+                          side_effect=launch_with_unclosed_task) as launch:
+            result = self.supervisor.run_continuous(
+                self.lease, cycle_inputs=lambda _tick: inputs,
+                cycle_id_prefix=lambda _tick: "closeout-error",
+                stop_event=Event(), interval_seconds=0.001, max_cycles=3,
+                on_cycle=fail_closeout,
+            )
+
+        self.assertEqual(result.cycles_completed, 1)
+        self.assertEqual(result.stop_reason, "closeout_failed")
+        launch.assert_called_once()
+        event = next(item for item in self.store.events()
+                     if item["event_id"] == "continuous-closeout-failed:closeout-error:1")
+        self.assertEqual(event["payload"], {
+            "type": "supervisor.continuous_closeout_failed",
+            "cycle_id": "closeout-error:1",
+            "failure_type": "ValueError",
+            "tasks": [{"task_id": task.task_id, "state": "in_progress"}],
+        })
+
+    def test_continuous_supervisor_refuses_restart_with_prior_active_tasks(self):
+        from threading import Event
+        from unittest.mock import patch
+
+        task = TaskRecord("TASK-RECOVERY", "Recover before dispatch",
+                          TaskState.NEEDS_REVIEW, "builder", "high",
+                          ("src/recovery.py",))
+        self.store.seed_task(self.lease, task, event_id="seed-prior-active", now=101)
+        self.store.set_supervisor_mode(
+            self.lease, "running", event_id="run-prior-active", now=102,
+        )
+        inputs = {
+            "capacity": {}, "task_prompts": {}, "invocation_ids": {},
+            "base_ref": "unused", "worktrees": object(), "adapters": {}, "now": 103,
+        }
+        with patch.object(self.supervisor, "run_dispatch_and_launch_cycle") as launch:
+            result = self.supervisor.run_continuous(
+                self.lease, cycle_inputs=lambda _tick: inputs,
+                cycle_id_prefix=lambda _tick: "recovery",
+                stop_event=Event(), interval_seconds=0.001, max_cycles=3,
+            )
+
+        self.assertEqual(result.cycles_completed, 0)
+        self.assertEqual(result.stop_reason, "active_tasks_require_recovery")
+        launch.assert_not_called()
+        event = next(item for item in self.store.events()
+                     if item["event_id"] == "continuous-preexisting-active:recovery:1")
+        self.assertEqual(event["payload"], {
+            "type": "supervisor.continuous_preexisting_active_tasks",
+            "cycle_id": "recovery:1",
+            "tasks": [{"task_id": task.task_id, "state": "needs_review"}],
+        })
 
     def test_continuous_runner_renews_head_lease_during_idle_interval(self):
         from threading import Event
@@ -1977,11 +2260,98 @@ class SupervisorTests(unittest.TestCase):
         self.assertEqual(self.store.get_task(task.task_id).state, TaskState.NEEDS_REVIEW)
 
     @unittest.skipUnless(os.name == "nt", "Windows Job Object host-commit integration")
+    def test_supervisor_closeout_sequences_host_commit_gate_and_independent_review(self):
+        from dataclasses import replace
+        from codexdevteam_kernel.host_commit import QuiescenceProof
+
+        project, base, task = self.prepare_claimed_maker("TASK-CLOSEOUT-PIPELINE")
+        worktrees = GitWorktreeManager(
+            project, Path(self.temp.name) / "managed-closeout-pipeline")
+
+        class CommittingMaker:
+            def invoke(inner_self, request):
+                result = self.FakeInvocationAdapter().invoke(request)
+                source = Path(request.working_directory) / "src" / "implemented.py"
+                source.parent.mkdir(parents=True, exist_ok=True)
+                source.write_text("answer = 42\n", encoding="utf-8")
+                return replace(result, quiescence_proof=QuiescenceProof(
+                    "windows", "windows_job_object", True, 0, "fixture"))
+
+        maker = self.supervisor.invoke_claimed_task(
+            self.lease, task.task_id, invocation_id="maker:closeout-pipeline",
+            prompt="implement", base_ref=base, worktrees=worktrees,
+            adapters={"codex": CommittingMaker()}, defer_control_drain=True, now=104)
+        self.assertEqual(maker.host_commit.status, "committed")
+
+        checker_registry = WorkerRegistry.from_dict({
+            "protocol_version": 1, "active": ["builder", "checker"],
+            "head_candidate": None,
+            "defined": {
+                "builder": {"role": "implementation", "capability_floor": "advanced",
+                            "runtime": "codex", "model": "builder-model",
+                            "control_mode": "strict", "strict_verification": {
+                                "status": "passed", "runtime": "codex",
+                                "model": "builder-model",
+                                "verified_at": "2026-10-01T00:00:00Z",
+                                "evidence_ref": "live-check",
+                                "verified_capabilities": [
+                                    "control_protocol", "host_commit_boundary",
+                                    "task_worktree_isolation", "post_run_territory_gate",
+                                ],
+                            }},
+                "checker": {"role": "reviewer", "capability_floor": "standard",
+                            "runtime": "independent-checker", "model": "review-model"},
+            },
+        })
+        supervisor = Supervisor(self.store, checker_registry, SupervisorPolicy(
+            require_strict=False, require_capacity_observation=False))
+        gate_runner = GateRunner(project, Path(self.temp.name) / "gate-closeout-pipeline")
+
+        class Checker:
+            def invoke(inner_self, request):
+                started_at = time.time()
+                verdict = json.dumps({
+                    "task_id": request.task_id, "sha": request.review_sha,
+                    "gate_fingerprint": request.gate_fingerprint,
+                    "decision": "approved", "rationale": "Exact-SHA review passed.",
+                    "evidence_refs": ["src/implemented.py"],
+                })
+                return InvocationResult(
+                    request.invocation_id, request.task_id, "checker",
+                    request.identity.unit_id, request.identity.runtime,
+                    request.identity.model, "succeeded", 0, 0.1,
+                    verdict, "", False, "e" * 64, started_at, started_at + 0.1,
+                    request.review_sha, request.gate_fingerprint,
+                )
+
+        closeout = supervisor.closeout_maker_with_checker(
+            self.lease, maker, gate_runner=gate_runner, base_ref=base,
+            commands={name: [sys.executable, "-c", "pass"]
+                      for name in ("build", "typecheck", "test_full")},
+            checker_id="checker", checker_prompt="Review the committed SHA.",
+            adapters={"independent-checker": Checker()},
+            gate_attempt_event_id="gate-closeout-pipeline",
+            checker_invocation_id="checker:closeout-pipeline",
+            review_event_id="review-closeout-pipeline", now=107,
+        )
+
+        self.assertEqual(closeout.gate.status, "passed")
+        self.assertIsNotNone(closeout.checker)
+        self.assertTrue(closeout.review_applied)
+        self.assertEqual(closeout.maker.host_commit.sha, closeout.gate.sha)
+        self.assertEqual(self.store.get_task(task.task_id).state, TaskState.DONE)
+
+    @unittest.skipUnless(os.name == "nt", "Windows Job Object host-commit integration")
     def test_host_gate_moves_task_to_review_without_maker_sha_report(self):
         from dataclasses import replace
         from codexdevteam_kernel.host_commit import QuiescenceProof
 
         project, base, task = self.prepare_claimed_maker("TASK-105-GATE-REVIEW")
+        (project / "PLAN.md").write_text(
+            f"### {task.task_id}\n**Title:** Run a maker\n**Status:** in_progress\n"
+            "**Assigned_To:** builder\n**Priority:** medium\n**Owned_Paths:** src/**\n",
+            encoding="utf-8",
+        )
         manager = GitWorktreeManager(project, Path(self.temp.name) / "managed-105-gate-review")
 
         class CommittingMaker:
@@ -2009,11 +2379,14 @@ class SupervisorTests(unittest.TestCase):
                          {name: check.summary for name, check in gate.checks.items()})
 
         self.supervisor.finalize_maker_gate(
-            self.lease, cycle, gate, attempt_event_id="gate-maker-105-review", now=105)
+            self.lease, cycle, gate, attempt_event_id="gate-maker-105-review",
+            project_root=project, now=105)
 
         reviewed = self.store.get_task(task.task_id)
         self.assertEqual(reviewed.state, TaskState.NEEDS_REVIEW)
         self.assertIn(gate.test_run_result.evidence_ref, reviewed.test_evidence)
+        self.assertIn("**Status:** needs_review", (project / "PLAN.md").read_text(encoding="utf-8"))
+        self.assertEqual(self.store.pending_plan_projections(), ())
 
         checker_registry = WorkerRegistry.from_dict({
             "protocol_version": 1, "active": ["builder", "checker"],
@@ -2096,6 +2469,7 @@ class SupervisorTests(unittest.TestCase):
             base_ref=base, worktrees=manager, adapters={"codex": adapter}, now=104)
         self.assertEqual(result.invocation.status, "launch_failed")
         self.assertNotIn("private details", result.invocation.stderr)
+        self.assertIn("RuntimeError", result.invocation.stderr)
         snapshot = Path(adapter.requests[0].state_db_path)
         self.assertFalse(snapshot.exists())
         self.assertFalse(any(Path(str(snapshot) + suffix).exists()
@@ -2517,8 +2891,16 @@ class HandoverTranslationTests(unittest.TestCase):
                 self.assertEqual(main(), 0)
             report = json.loads(output.getvalue())
             self.assertEqual(report["staged_task_ids"], ["TASK-STAGE-CLI"])
+            self.assertTrue(report["target_lease_released"])
             self.assertFalse(report["source_process_fenced"])
             self.assertFalse(report["activation_authorized"])
+            db = sqlite3.connect(state_path)
+            try:
+                lease_expiry = db.execute(
+                    "SELECT expires_at FROM head_lease WHERE singleton=1").fetchone()[0]
+            finally:
+                db.close()
+            self.assertLessEqual(lease_expiry, time.time())
             self.assertEqual(plan_path.read_text(encoding="utf-8"), source)
             marker = json.loads((project / ".codexdevteam" / "installation.json").read_text())
             self.assertFalse(marker["activated"])
@@ -2527,6 +2909,24 @@ class HandoverTranslationTests(unittest.TestCase):
                              ["TASK-STAGE-CLI"])
             self.assertEqual(StateStore(state_path).handover_context_fields()[0]["field_value"],
                              "retain this operator-approved context")
+
+            failed_state_path = Path(temp) / "failed-target-state.sqlite"
+            failed_output = io.StringIO()
+            with patch("codexdevteam_kernel.onboarding_cli.stage_handover",
+                       side_effect=ValueError("fixture stage failure")), \
+                    patch("sys.argv", [
+                        "codexdevteam", "handover-stage", "--project", str(project),
+                        "--mapping", str(mapping_path), "--registry", str(registry_path),
+                        "--state-db", str(failed_state_path),
+                    ]), contextlib.redirect_stderr(failed_output):
+                self.assertEqual(main(), 2)
+            failed_db = sqlite3.connect(failed_state_path)
+            try:
+                failed_lease_expiry = failed_db.execute(
+                    "SELECT expires_at FROM head_lease WHERE singleton=1").fetchone()[0]
+            finally:
+                failed_db.close()
+            self.assertLessEqual(failed_lease_expiry, time.time())
 
 
 class CompatibilityGateTests(unittest.TestCase):
@@ -2692,6 +3092,9 @@ class FreshProjectPilotTests(unittest.TestCase):
                               metrics.review_sessions, metrics.gate_attempts,
                               metrics.gate_rejections, metrics.checker_invocations),
                              (1, 1, 1, 1, 0, 1))
+            self.assertFalse(metrics.token_usage_complete)
+            self.assertEqual(metrics.unmetered_token_invocations, 1)
+            self.assertIsNone(metrics.input_tokens)
             self.assertFalse(metrics.spend_complete)
 
 
@@ -5712,6 +6115,8 @@ class UsageReportingTests(unittest.TestCase):
         self.assertEqual(result.succeeded, 1)
         self.assertEqual(result.timed_out, 1)
         self.assertEqual(result.input_tokens, 100)
+        self.assertFalse(result.token_usage_complete)
+        self.assertEqual(result.unmetered_token_invocations, 1)
         self.assertEqual(result.duration_seconds, 42.5)
         self.assertEqual(result.metered_invocations, 1)
         self.assertEqual(result.unmetered_invocations, 1)
@@ -5765,6 +6170,657 @@ class UsageReportingTests(unittest.TestCase):
             self.assertEqual(report["model"], "head-model")
             self.assertEqual(report["metered_invocations"], 1)
             self.assertAlmostEqual(report["cost_usd"], 0.00014)
+
+
+class PlanAuthoringTests(unittest.TestCase):
+    @staticmethod
+    def payload(**changes):
+        task = {
+            "task_id": "TASK-101", "title": "Create the project shell",
+            "priority": "high", "owned_paths": ["src/**"],
+            "protected_grants": [], "depends_on": [],
+            "acceptance_criteria": ["The app starts from the documented command."],
+            "test_evidence": ["Run the project smoke check."],
+            "task_class": "standard",
+        }
+        task.update(changes)
+        return json.dumps({"protocol_version": 1, "tasks": [task]})
+
+    def test_plan_response_uses_canonical_parser_and_configured_task_classes(self):
+        from codexdevteam_kernel.plan_authoring import validate_plan_response
+        markdown = validate_plan_response(
+            self.payload(), allowed_task_classes={"standard", "critical"})
+        parsed = parse_plan_markdown(markdown)
+        self.assertFalse(parsed.findings)
+        self.assertEqual(len(parsed.tasks), 1)
+        self.assertEqual(parsed.tasks[0].state, TaskState.PENDING)
+        self.assertIsNone(parsed.tasks[0].assigned_worker)
+        self.assertEqual(parsed.tasks[0].task_class, "standard")
+
+    def test_plan_response_rejects_unconfigured_classes_and_dependency_cycles(self):
+        from codexdevteam_kernel.plan_authoring import validate_plan_response
+        with self.assertRaisesRegex(ValueError, "unconfigured task class"):
+            validate_plan_response(self.payload(), allowed_task_classes={"critical"})
+        cyclic = json.loads(self.payload())
+        cyclic["tasks"][0]["depends_on"] = ["TASK-102"]
+        second = dict(cyclic["tasks"][0], task_id="TASK-102", depends_on=["TASK-101"])
+        cyclic["tasks"].append(second)
+        with self.assertRaisesRegex(ValueError, "dependency cycle"):
+            validate_plan_response(json.dumps(cyclic))
+
+    def test_plan_response_rejects_control_territory_and_duplicate_json_keys(self):
+        from codexdevteam_kernel.plan_authoring import validate_plan_response
+        with self.assertRaisesRegex(ValueError, "ownership overlaps"):
+            validate_plan_response(self.payload(owned_paths=["**"]))
+        with self.assertRaisesRegex(ValueError, "duplicate JSON key"):
+            validate_plan_response('{"protocol_version":1,"protocol_version":1,"tasks":[]}')
+
+    def test_publish_plan_is_exclusive_and_never_overwrites(self):
+        from codexdevteam_kernel.plan_authoring import publish_plan_once
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            plan = publish_plan_once(root, "# Validated plan\n")
+            self.assertEqual(plan.read_text(encoding="utf-8"), "# Validated plan\n")
+            with self.assertRaisesRegex(ValueError, "refusing to overwrite"):
+                publish_plan_once(root, "# Replacement\n")
+            self.assertEqual(plan.read_text(encoding="utf-8"), "# Validated plan\n")
+
+    def test_fresh_brief_plan_flows_through_bootstrap_with_provenance(self):
+        from codexdevteam_kernel.host_config import WindowsHostConfig
+        from codexdevteam_kernel.installer_resources import default_framework_files
+        from codexdevteam_kernel.onboarding_cli import (
+            _bootstrap_plan, _create_plan_from_brief,
+        )
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp) / "project"
+            root.mkdir()
+            install_fresh_project(root, default_framework_files())
+            registry_path = root / ".codexdevteam" / "framework" / "registry.template.json"
+            registry = json.loads(registry_path.read_text(encoding="utf-8"))
+            registry["defined"]["codex-head"]["model"] = "planner-configured-model"
+            registry_path.write_text(json.dumps(registry), encoding="utf-8")
+            brief_path = root.parent / "brief.md"
+            brief_path.write_text("Build a small task-tracking CLI.", encoding="utf-8")
+            response = self.payload()
+            result = InvocationResult(
+                "planner-fixture-1", None, "head", "codex-head", "codex",
+                "planner-configured-model", "succeeded", 0, 0.1, response, "", False,
+                hashlib.sha256(response.encode("utf-8")).hexdigest(), 100, 101,
+                role="planner",
+            )
+            config = WindowsHostConfig.load(root)
+            with patch("codexdevteam_kernel.onboarding_cli.CodexExecAdapter.invoke",
+                       return_value=result) as invoke:
+                planned = _create_plan_from_brief(root, config, brief_path)
+            self.assertEqual(planned["task_count"], 1)
+            invoke.assert_called_once()
+            request = invoke.call_args.args[0]
+            self.assertEqual(request.purpose, "head")
+            self.assertFalse(request.writable)
+            plan = (root / "PLAN.md").read_text(encoding="utf-8")
+            self.assertIn("CODEXDEVTEAM_PLAN_PROVENANCE", plan)
+            self.assertIn('"model":"planner-configured-model"', plan)
+            self.assertNotIn("Build a small task-tracking CLI.", plan)
+            seeded = _bootstrap_plan(config, takeover_confirmed=False)
+            self.assertTrue(seeded["bootstrapped"])
+            store = StateStore(config.state_db)
+            self.assertEqual([task.task_id for task in store.list_tasks()], ["TASK-101"])
+            self.assertEqual(store.list_tasks()[0].task_class, "standard")
+            self.assertEqual(store.get_supervisor_mode()["mode"], "parked")
+
+    def test_host_run_accepts_brief_and_chains_plan_bootstrap_and_activation(self):
+        from types import SimpleNamespace
+        from codexdevteam_kernel.host_config import WindowsHostConfig
+        from codexdevteam_kernel.installer_resources import default_framework_files
+        from codexdevteam_kernel.onboarding_cli import main
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp) / "project"
+            root.mkdir()
+            install_fresh_project(root, default_framework_files())
+            registry_path = root / ".codexdevteam" / "framework" / "registry.template.json"
+            registry = json.loads(registry_path.read_text(encoding="utf-8"))
+            registry["defined"]["codex-head"]["model"] = "planner-configured-model"
+            registry_path.write_text(json.dumps(registry), encoding="utf-8")
+            brief_path = root.parent / "brief.md"
+            brief_path.write_text("Build a small task-tracking CLI.", encoding="utf-8")
+            response = self.payload()
+            invocation = InvocationResult(
+                "planner-fixture-2", None, "head", "codex-head", "codex",
+                "planner-configured-model", "succeeded", 0, 0.1, response, "", False,
+                hashlib.sha256(response.encode("utf-8")).hexdigest(), 100, 101,
+                role="planner",
+            )
+            config = WindowsHostConfig.load(root)
+
+            def fake_activate(_config, store, *, confirmed, takeover_confirmed=False):
+                self.assertTrue(confirmed)
+                lease = store.acquire_head("codexdevteam", _config.instance_id,
+                                           ttl_seconds=90,
+                                           takeover_confirmed=takeover_confirmed)
+                store.set_supervisor_mode(lease, "running", event_id="test-run-active",
+                                          reason="test activation")
+                return lease
+
+            def fake_run(_config, store, lease, _stop_event):
+                store.set_supervisor_mode(lease, "parked", event_id="test-run-parked",
+                                          reason="test run complete")
+                store.release_head(lease)
+                return SimpleNamespace(cycles_completed=0, stop_reason="test complete",
+                                       last_cycle=None)
+
+            output = io.StringIO()
+            with patch("codexdevteam_kernel.onboarding_cli.CodexExecAdapter.invoke",
+                       return_value=invocation), \
+                 patch("codexdevteam_kernel.onboarding_cli._assert_supervised_run_ready"), \
+                 patch("codexdevteam_kernel.onboarding_cli.activate_fresh_host",
+                       side_effect=fake_activate) as activate, \
+                 patch("codexdevteam_kernel.onboarding_cli.run_configured_host_loop",
+                       side_effect=fake_run) as run_loop, \
+                 patch("codexdevteam_kernel.onboarding_cli.watch_host_stop_request"), \
+                 patch("sys.argv", ["codexdevteam", "host-run", "--project", str(root),
+                                    "--brief", str(brief_path), "--confirm-plan-write",
+                                    "--confirm-activation"]), \
+                 contextlib.redirect_stdout(output):
+                self.assertEqual(main(), 0)
+            activate.assert_called_once()
+            run_loop.assert_called_once()
+            report = json.loads(output.getvalue())
+            self.assertEqual(report["stop_reason"], "test complete")
+            self.assertTrue((root / "PLAN.md").is_file())
+            self.assertTrue(config.state_db.is_file())
+
+
+class HostRoutingPolicyTests(unittest.TestCase):
+    def test_host_runtime_loads_configured_role_floor_and_rejects_checker_role_route(self):
+        from codexdevteam_kernel.host_config import WindowsHostConfig
+        from codexdevteam_kernel.host_runtime import load_host_runtime
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            config = WindowsHostConfig.from_dict(root, {
+                "protocol_version": 1,
+                "state_db": ".codexdevteam/state/state.sqlite",
+                "registry": ".codexdevteam/framework/registry.json",
+                "verification_config": ".codexdevteam/framework/verification.json",
+                "capacity_snapshot": ".codexdevteam/control/capacity.json",
+                "worktree_root": "../{project_name}-codexdevteam-worktrees",
+                "control_root": ".codexdevteam/control",
+                "logs_root": ".codexdevteam/logs",
+                "system_id": "test-system", "instance_id": "test-instance",
+            })
+            config.registry.parent.mkdir(parents=True)
+            receipt = {
+                "status": "passed", "runtime": "codex", "verified_at":
+                    datetime.now(timezone.utc).isoformat(),
+                "evidence_ref": "fixture-live-verification",
+                "verified_capabilities": ["control_protocol", "host_commit_boundary",
+                    "task_worktree_isolation", "post_run_territory_gate"],
+            }
+            registry = {"protocol_version": 1, "active": ["maker", "checker"],
+                        "head_candidate": None,
+                        "capability_order": ["standard", "frontier"],
+                        "defined": {
+                            "maker": {"role": "implementation", "capability_floor": "standard",
+                                      "runtime": "codex", "model": "maker-model",
+                                      "control_mode": "strict",
+                                      "strict_verification": dict(receipt, model="maker-model")},
+                            "checker": {"role": "reviewer", "capability_floor": "frontier",
+                                        "runtime": "codex", "model": "checker-model",
+                                        "control_mode": "strict",
+                                        "strict_verification": dict(receipt, model="checker-model")},
+                        }}
+            config.registry.write_text(json.dumps(registry), encoding="utf-8")
+            config.verification_config.write_text(json.dumps({
+                "protocol_version": 1, "strict_supervision": True,
+                "protected_paths": ["PLAN.md", ".codexdevteam/**"],
+                "commands": {name: ["python", "-c", "pass"]
+                             for name in ("build", "typecheck", "test_full")},
+                "environment_allowlist": [],
+                "ignored_paths_allowlist": ["**/__pycache__", "**/__pycache__/**"],
+            }), encoding="utf-8")
+            routing_path = root / ".codexdevteam" / "framework" / "task-routing.json"
+            routing_path.write_text(json.dumps({
+                "capability_floors": {"critical": "frontier"},
+                "roles": {"critical": "reviewer"},
+            }), encoding="utf-8")
+            with self.assertRaisesRegex(ValueError, "checker roles"):
+                load_host_runtime(config)
+            routing_path.write_text(json.dumps({
+                "capability_floors": {"critical": "frontier"},
+                "roles": {"critical": "implementation"},
+            }), encoding="utf-8")
+            bindings = load_host_runtime(config)
+            self.assertEqual(bindings.ignored_paths_allowlist,
+                             ("**/__pycache__", "**/__pycache__/**"))
+            self.assertEqual(bindings.task_class_policy.floor_for("critical"), "frontier")
+            self.assertEqual(bindings.task_class_policy.role_for(
+                "critical", fallback="implementation"), "implementation")
+            verification = json.loads(config.verification_config.read_text(encoding="utf-8"))
+            verification["ignored_paths_allowlist"] = ["**"]
+            config.verification_config.write_text(json.dumps(verification), encoding="utf-8")
+            with self.assertRaisesRegex(ValueError, "must be narrow"):
+                load_host_runtime(config)
+
+
+class HostRecoveryAndIntegrationTests(unittest.TestCase):
+    @staticmethod
+    def _config(root: Path):
+        from codexdevteam_kernel.host_config import WindowsHostConfig
+        return WindowsHostConfig.from_dict(root, {
+            "protocol_version": 1,
+            "state_db": ".codexdevteam/state/state.sqlite",
+            "registry": ".codexdevteam/framework/registry.json",
+            "verification_config": ".codexdevteam/framework/verification.json",
+            "capacity_snapshot": ".codexdevteam/control/capacity.json",
+            "worktree_root": "../{project_name}-codexdevteam-worktrees",
+            "control_root": ".codexdevteam/control",
+            "logs_root": ".codexdevteam/logs",
+            "system_id": "recovery-test", "instance_id": "recovery-instance",
+        })
+
+    @staticmethod
+    def _git(root: Path, *args: str) -> str:
+        result = subprocess.run(["git", "-C", str(root), *args], capture_output=True,
+                                text=True, encoding="utf-8", check=False)
+        if result.returncode:
+            raise AssertionError(result.stderr)
+        return result.stdout.strip()
+
+    def test_plan_integrity_allows_runtime_gate_evidence_but_rejects_plan_edits(self):
+        from dataclasses import replace
+        from codexdevteam_kernel.host_runner import _verify_plan_matches_authoritative_state
+
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp) / "project"
+            root.mkdir()
+            task = TaskRecord(
+                "TASK-PLAN-CHECK", "Verify projected plan", TaskState.PENDING, None,
+                "high", ("src/**",), acceptance_criteria=("Keep the seed criteria.",),
+                test_evidence=("Run the planned test command.",),
+            )
+            plan = (
+                "### TASK-PLAN-CHECK\n"
+                "**Title:** Verify projected plan\n"
+                "**Status:** pending\n"
+                "**Assigned_To:** —\n"
+                "**Priority:** high\n"
+                "**Owned_Paths:** src/**\n"
+                "**Protected_Grants:** —\n"
+                "**Depends_On:** —\n"
+                "**Acceptance_Criteria:**\n- Keep the seed criteria.\n"
+                "**Test_Evidence:**\n- Run the planned test command.\n"
+            )
+            plan_path = root / "PLAN.md"
+            plan_path.write_text(plan, encoding="utf-8")
+            store = StateStore(root / ".codexdevteam" / "state.sqlite")
+            lease = store.acquire_head("plan-check", "plan-check", ttl_seconds=300)
+            store.seed_task(lease, task, event_id="seed-plan-check")
+
+            updated = replace(
+                task, state=TaskState.DONE, assigned_worker="maker",
+                maker_identity={"unit_id": "maker", "runtime": "codex", "model": "model-a"},
+                test_evidence=("Run the planned test command.", "testrun:sha:test:artifact"),
+            )
+            db = store._connect()
+            try:
+                db.execute("UPDATE tasks SET payload_json=? WHERE task_id=?",
+                           (json.dumps(updated.to_dict(), sort_keys=True, separators=(",", ":")),
+                            task.task_id))
+                db.commit()
+            finally:
+                db.close()
+            projected, _ = patch_plan_task_state(
+                plan, task_id=task.task_id, state=TaskState.DONE, assigned_worker="maker",
+                expected_sha256=hashlib.sha256(plan.encode("utf-8")).hexdigest(),
+            )
+            plan_path.write_text(projected, encoding="utf-8")
+
+            _verify_plan_matches_authoritative_state(root, store)
+
+            tampered = projected.replace("Keep the seed criteria.", "Changed seed criteria.")
+            plan_path.write_text(tampered, encoding="utf-8")
+            with self.assertRaisesRegex(ValueError, "PLAN.md changed authoritative task content"):
+                _verify_plan_matches_authoritative_state(root, store)
+
+            tampered = projected.replace("Run the planned test command.", "Run a different test.")
+            plan_path.write_text(tampered, encoding="utf-8")
+            with self.assertRaisesRegex(ValueError, "PLAN.md changed authoritative task content"):
+                _verify_plan_matches_authoritative_state(root, store)
+
+    @unittest.skipUnless(os.name == "nt", "Windows host recovery is Windows-only")
+    def test_restart_recovery_escalates_and_preserves_interrupted_task(self):
+        from codexdevteam_kernel.host_runner import recover_interrupted_host_tasks
+
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp) / "project"
+            root.mkdir()
+            config = self._config(root)
+            config.state_db.parent.mkdir(parents=True)
+            store = StateStore(config.state_db)
+            lease = store.acquire_head(config.system_id, config.instance_id, ttl_seconds=300)
+            task = TaskRecord(
+                "TASK-RESTART", "Inspect interrupted work", TaskState.IN_PROGRESS,
+                "maker", "high", ("src/**",),
+                maker_identity={"unit_id": "maker", "runtime": "codex", "model": "model-a"},
+            )
+            store.seed_task(lease, task, event_id="seed-restart-task")
+
+            first = recover_interrupted_host_tasks(config, store, lease)
+            second = recover_interrupted_host_tasks(config, store, lease)
+
+            self.assertEqual(first, (task.task_id,))
+            self.assertEqual(second, (task.task_id,))
+            self.assertEqual(store.get_task(task.task_id), task)
+            events = store.events()
+            self.assertTrue(any(event["payload"].get("type") == "escalation.recorded"
+                                and event["payload"].get("task_id") == task.task_id
+                                for event in events))
+            recovery = [event for event in events
+                        if event["payload"].get("type") == "supervisor.restart_recovery_completed"]
+            self.assertEqual(len(recovery), 1)
+            self.assertFalse(recovery[0]["payload"]["dispatch_permitted"])
+
+    @unittest.skipUnless(os.name == "nt", "Windows host recovery is Windows-only")
+    def test_restart_recovery_refuses_unproven_quiescence_and_preserves_task_branch(self):
+        from codexdevteam_kernel.host_runner import recover_interrupted_host_tasks
+        from codexdevteam_kernel.process_identity import ProcessIdentity
+        from codexdevteam_kernel.process_reaper import ProcessReapResult, ProcessReapStatus
+
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp) / "project"
+            root.mkdir()
+            self._git(root, "init", "-b", "main")
+            self._git(root, "config", "user.name", "Recovery Test")
+            self._git(root, "config", "user.email", "recovery-test@example.invalid")
+            (root / "README.md").write_text("base\n", encoding="utf-8")
+            self._git(root, "add", "README.md")
+            self._git(root, "commit", "-m", "base")
+            branch = "codexdevteam/TASK-RESTART-UNVERIFIED"
+            self._git(root, "checkout", "-b", branch)
+            (root / "work-in-progress.txt").write_text("preserve this work\n", encoding="utf-8")
+            self._git(root, "add", "work-in-progress.txt")
+            self._git(root, "commit", "-m", "interrupted task work")
+            branch_sha = self._git(root, "rev-parse", branch)
+            self._git(root, "checkout", "main")
+
+            config = self._config(root)
+            config.state_db.parent.mkdir(parents=True)
+            store = StateStore(config.state_db)
+            lease = store.acquire_head(config.system_id, config.instance_id, ttl_seconds=300)
+            task = TaskRecord(
+                "TASK-RESTART-UNVERIFIED", "Inspect interrupted work", TaskState.CLAIMED,
+                "maker", "high", ("src/**",),
+                maker_identity={"unit_id": "maker", "runtime": "codex", "model": "model-a"},
+            )
+            store.seed_task(lease, task, event_id="seed-unverified-restart-task")
+            store.set_supervisor_mode(lease, "running", event_id="run-unverified-restart")
+            invocation_id = "maker:unverified-restart"
+            store.start_task_invocation(lease, task.task_id, invocation_id)
+            identity = ProcessIdentity(
+                987654, "windows:fixture-process", 987654,
+                "Global\\CODEXDEVTEAM-" + "a" * 32,
+            )
+            store.record_task_invocation_process(lease, task.task_id, invocation_id, identity)
+            unverified = ProcessReapResult(
+                ProcessReapStatus.UNVERIFIED, "windows_job_object", identity.pid, None,
+            )
+
+            with patch("codexdevteam_kernel.state.reap_managed_process",
+                       return_value=unverified):
+                unresolved = recover_interrupted_host_tasks(config, store, lease)
+
+            self.assertEqual(unresolved, (task.task_id,))
+            live = store.task_invocation_liveness(task_id=task.task_id)
+            self.assertEqual(live[0]["state"], "running")
+            self.assertEqual(live[0]["process_containment_ref"], identity.containment_ref)
+            self.assertEqual(self._git(root, "rev-parse", branch), branch_sha)
+            self.assertFalse((root / "work-in-progress.txt").exists())
+            escalation = next(
+                event["payload"] for event in store.events()
+                if event["payload"].get("type") == "escalation.recorded"
+                and event["payload"].get("task_id") == task.task_id
+            )
+            self.assertIn("process tree is still unverified", escalation["message"])
+            completed = next(
+                event["payload"] for event in store.events()
+                if event["payload"].get("type") == "supervisor.restart_recovery_completed"
+            )
+            self.assertFalse(completed["dispatch_permitted"])
+
+    @unittest.skipUnless(os.name == "nt", "Windows Job Object recovery is Windows-only")
+    def test_restart_recovery_reaps_job_tree_and_preserves_task_branch(self):
+        from dataclasses import replace
+        from codexdevteam_kernel.host_runner import recover_interrupted_host_tasks
+        from codexdevteam_kernel.process_identity import capture_process_identity
+        from codexdevteam_kernel.windows_jobs import WindowsJob
+
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp) / "project"
+            root.mkdir()
+            self._git(root, "init", "-b", "main")
+            self._git(root, "config", "user.name", "Recovery Test")
+            self._git(root, "config", "user.email", "recovery-test@example.invalid")
+            (root / "README.md").write_text("base\n", encoding="utf-8")
+            self._git(root, "add", "README.md")
+            self._git(root, "commit", "-m", "base")
+            branch = "codexdevteam/TASK-RESTART-JOB"
+            self._git(root, "checkout", "-b", branch)
+            (root / "work-in-progress.txt").write_text("preserve this work\n", encoding="utf-8")
+            self._git(root, "add", "work-in-progress.txt")
+            self._git(root, "commit", "-m", "interrupted task work")
+            branch_sha = self._git(root, "rev-parse", branch)
+            self._git(root, "checkout", "main")
+
+            config = self._config(root)
+            config.state_db.parent.mkdir(parents=True)
+            store = StateStore(config.state_db)
+            lease = store.acquire_head(config.system_id, config.instance_id, ttl_seconds=600)
+            task = TaskRecord(
+                "TASK-RESTART-JOB", "Inspect interrupted work", TaskState.CLAIMED,
+                "maker", "high", ("src/**",),
+                maker_identity={"unit_id": "maker", "runtime": "codex", "model": "model-a"},
+            )
+            store.seed_task(lease, task, event_id="seed-job-restart-task")
+            store.set_supervisor_mode(lease, "running", event_id="run-job-restart")
+            invocation_id = "maker:job-restart"
+            store.start_task_invocation(lease, task.task_id, invocation_id)
+
+            job = WindowsJob.create()
+            process = None
+            try:
+                child_code = (
+                    "import subprocess,sys; "
+                    "subprocess.Popen([sys.executable,'-c','import time; time.sleep(60)'], "
+                    "stdin=subprocess.DEVNULL,stdout=subprocess.DEVNULL,"
+                    "stderr=subprocess.DEVNULL); print('maker-finished', flush=True)"
+                )
+                process = subprocess.Popen(
+                    [sys.executable, "-c", child_code], cwd=root,
+                    stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                    text=True, encoding="utf-8", errors="replace", shell=False,
+                    creationflags=(getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0) | 0x4),
+                )
+                job.assign(process)
+                identity = replace(capture_process_identity(process.pid),
+                                   containment_ref=job.name)
+                store.record_task_invocation_process(
+                    lease, task.task_id, invocation_id, identity,
+                )
+                job.resume(process)
+                stdout, _stderr = process.communicate(timeout=10)
+                self.assertEqual(stdout.strip(), "maker-finished")
+                self.assertGreater(job.active_process_count(), 0)
+
+                unresolved = recover_interrupted_host_tasks(config, store, lease)
+
+                self.assertEqual(unresolved, (task.task_id,))
+                self.assertEqual(job.active_process_count(), 0)
+                live = store.task_invocation_liveness(task_id=task.task_id)
+                self.assertEqual(live[0]["state"], "completed")
+                self.assertEqual(self._git(root, "rev-parse", branch), branch_sha)
+                self.assertFalse((root / "work-in-progress.txt").exists())
+                completion = next(
+                    event["payload"] for event in store.events()
+                    if event["payload"].get("type") == "supervisor.restart_recovery_completed"
+                )
+                self.assertFalse(completion["dispatch_permitted"])
+            finally:
+                if job.active_process_count():
+                    job.terminate_and_verify(timeout_seconds=5)
+                job.close()
+                if process is not None and process.poll() is None:
+                    process.kill()
+                    process.wait(timeout=5)
+
+    @unittest.skipUnless(os.name == "nt", "Windows host integration is Windows-only")
+    def test_approved_task_integrates_only_after_post_gate_and_preserves_plan(self):
+        from codexdevteam_kernel.host_integration import (
+            find_approved_tasks_awaiting_integration, integrate_approved_task,
+            recover_pending_integrations,
+        )
+
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp) / "project"
+            root.mkdir()
+            self._git(root, "init", "-b", "main")
+            self._git(root, "config", "user.name", "Test Host")
+            self._git(root, "config", "user.email", "test-host@example.invalid")
+            (root / ".gitignore").write_text(".codexdevteam/\n", encoding="utf-8")
+            registry_path = root / ".codexdevteam" / "framework" / "registry.template.json"
+            registry_path.parent.mkdir(parents=True)
+            original_registry = '{"active": []}\n'
+            registry_path.write_text(original_registry, encoding="utf-8")
+            (root / "PLAN.md").write_text("# Plan\n", encoding="utf-8")
+            (root / "src").mkdir()
+            (root / "src" / "base.py").write_text("BASE = True\n", encoding="utf-8")
+            self._git(root, "add", ".")
+            self._git(root, "add", "-f", ".codexdevteam/framework/registry.template.json")
+            self._git(root, "commit", "-m", "base")
+            base_sha = self._git(root, "rev-parse", "HEAD")
+
+            task_id = "TASK-INTEGRATE"
+            task_branch = f"codexdevteam/{task_id}"
+            self._git(root, "checkout", "-b", task_branch)
+            (root / "src" / "change.py").write_text("CHANGE = True\n", encoding="utf-8")
+            self._git(root, "add", "src/change.py")
+            self._git(root, "commit", "-m", "task change")
+            approved_sha = self._git(root, "rev-parse", "HEAD")
+            self._git(root, "checkout", "main")
+
+            projected_plan = "# Plan\n\n<!-- host projection -->\n"
+            (root / "PLAN.md").write_text(projected_plan, encoding="utf-8")
+            config = self._config(root)
+            config.state_db.parent.mkdir(parents=True)
+            store = StateStore(config.state_db)
+            lease = store.acquire_head(config.system_id, config.instance_id, ttl_seconds=600)
+            maker = {"unit_id": "maker", "runtime": "codex", "model": "model-a"}
+            task = TaskRecord(task_id, "Integrate approved change", TaskState.DONE,
+                              "maker", "high", ("src/change.py",), maker_identity=maker)
+            store.seed_task(lease, task, event_id="seed-integration-task")
+            approved_event = {"payload": {
+                "task_id": task_id, "decision": "approved", "sha": approved_sha,
+                "maker_identity": maker, "gate_fingerprint": "gate-fingerprint",
+            }}
+            gate_runner = GateRunner(root, root / ".codexdevteam" / "gates")
+            commands = {name: (sys.executable, "-c", "pass")
+                        for name in ("build", "typecheck", "test_full")}
+
+            registry_path.write_text('{"active": ["configured-maker"]}\n', encoding="utf-8")
+            with patch.object(store, "verified_review_events", return_value=[approved_event]):
+                with self.assertRaisesRegex(ValueError, "clean outside host-projected PLAN"):
+                    integrate_approved_task(
+                        config, store, lease, task_id, gate_runner, commands,
+                        expected_base_sha=base_sha,
+                    )
+            self.assertEqual(self._git(root, "rev-parse", "HEAD"), base_sha)
+            self.assertEqual(registry_path.read_text(encoding="utf-8"),
+                             '{"active": ["configured-maker"]}\n')
+            registry_path.write_text(original_registry, encoding="utf-8")
+
+            # A task branch from an older common base must reach merge conflict
+            # handling instead of being mistaken for unrelated Git history.
+            (root / "src" / "change.py").write_text("OTHER = True\n", encoding="utf-8")
+            self._git(root, "add", "src/change.py")
+            self._git(root, "commit", "-m", "conflicting project change")
+            conflict_base = self._git(root, "rev-parse", "HEAD")
+            with patch.object(store, "verified_review_events", return_value=[approved_event]):
+                with self.assertRaisesRegex(ValueError, "integration conflict"):
+                    integrate_approved_task(
+                        config, store, lease, task_id, gate_runner, commands,
+                        expected_base_sha=conflict_base,
+                    )
+            self.assertEqual(self._git(root, "rev-parse", "HEAD"), conflict_base)
+            self._git(root, "reset", "--hard", base_sha)
+            (root / "PLAN.md").write_text(projected_plan, encoding="utf-8")
+
+            from types import SimpleNamespace
+            with patch.object(store, "verified_review_events", return_value=[approved_event]), \
+                 patch.object(gate_runner, "run", return_value=SimpleNamespace(status="failed")):
+                with self.assertRaisesRegex(ValueError, "post-integration gate failed"):
+                    integrate_approved_task(
+                        config, store, lease, task_id, gate_runner, commands,
+                        expected_base_sha=base_sha,
+                    )
+            self.assertEqual(self._git(root, "rev-parse", "HEAD"), base_sha)
+
+            # A concurrent writer may advance the project ref while the
+            # post-merge gate is running. Integration must preserve that ref
+            # and leave a recoverable escalation instead of overwriting it.
+            concurrent_sha = self._git(
+                root, "commit-tree", f"{base_sha}^{{tree}}", "-p", base_sha,
+                "-m", "concurrent project update",
+            )
+            original_gate_run = gate_runner.run
+
+            def advance_project_ref_after_gate(*args, **kwargs):
+                result = original_gate_run(*args, **kwargs)
+                self._git(root, "update-ref", "refs/heads/main", concurrent_sha, base_sha)
+                return result
+
+            with patch.object(store, "verified_review_events", return_value=[approved_event]), \
+                 patch.object(gate_runner, "run", side_effect=advance_project_ref_after_gate):
+                with self.assertRaisesRegex(ValueError, "project checkout changed"):
+                    integrate_approved_task(
+                        config, store, lease, task_id, gate_runner, commands,
+                        expected_base_sha=base_sha,
+                    )
+            self.assertEqual(self._git(root, "rev-parse", "refs/heads/main"), concurrent_sha)
+            self._git(root, "update-ref", "refs/heads/main", base_sha, concurrent_sha)
+            self.assertEqual(recover_pending_integrations(config, store, lease), (task_id,))
+            self.assertEqual(self._git(root, "rev-parse", "HEAD"), base_sha)
+
+            stale_approval = {"payload": dict(approved_event["payload"], sha="0" * 40)}
+            with patch.object(store, "verified_review_events", return_value=[stale_approval]):
+                with self.assertRaisesRegex(ValueError, "differs from the independently approved SHA"):
+                    integrate_approved_task(
+                        config, store, lease, task_id, gate_runner, commands,
+                        expected_base_sha=base_sha,
+                    )
+            self.assertEqual(self._git(root, "rev-parse", "HEAD"), base_sha)
+
+            with patch.object(store, "verified_review_events", return_value=[approved_event]):
+                with patch("codexdevteam_kernel.host_integration._restore_plan",
+                           side_effect=OSError("simulated host interruption")):
+                    with self.assertRaisesRegex(OSError, "simulated host interruption"):
+                        integrate_approved_task(
+                            config, store, lease, task_id, gate_runner, commands,
+                            expected_base_sha=base_sha,
+                        )
+                integrated_sha = self._git(root, "rev-parse", "HEAD")
+                self.assertNotEqual(integrated_sha, base_sha)
+                self.assertNotEqual((root / "PLAN.md").read_text(encoding="utf-8"),
+                                    projected_plan)
+                self.assertEqual(recover_pending_integrations(config, store, lease), ())
+                awaiting = find_approved_tasks_awaiting_integration(store, lease)
+
+            self.assertEqual(self._git(root, "rev-parse", "HEAD"), integrated_sha)
+            self.assertTrue((root / "src" / "change.py").is_file())
+            self.assertEqual((root / "PLAN.md").read_text(encoding="utf-8"), projected_plan)
+            self.assertEqual(awaiting, ())
+            completion = next(event for event in store.events()
+                              if event["payload"].get("type") == "branch.integration_completed")
+            self.assertEqual(completion["payload"]["reviewed_sha"], approved_sha)
+            self.assertEqual(completion["payload"]["integrated_sha"], integrated_sha)
+            self.assertEqual(store.escalations(status="open"), [])
 
 
 if __name__ == "__main__":

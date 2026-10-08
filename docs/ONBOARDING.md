@@ -6,17 +6,22 @@ CODEXDEVTEAM has three onboarding modes.
 
 No compatible development OS is detected.
 
-Onboarding:
-1. inspect repository and stack;
-2. install the CODEXDEVTEAM framework;
-3. create project-owned coordination state;
-4. configure project verification commands;
-5. configure the builder registry;
-6. smoke-test runtime launch and worktree write capability;
-7. validate CONTROL emission for each proposed strict-mode worker;
-8. enable strict mode only for verified workers;
-9. initialize HEAD lease;
-10. run harness audit.
+Staged setup:
+1. inspect repository and stack, then install the inactive framework;
+2. configure the planner candidate's role, runtime, and model in the registry;
+3. provide a project brief and run `codexdevteam host-plan --project <path> --brief <file> --confirm-write`;
+4. inspect the generated, mechanically validated, unassigned `PLAN.md`;
+5. configure project verification commands, task-class routing, and strict builder/checker identities;
+6. smoke-test runtime launch and worktree write capability, then validate CONTROL emission;
+7. enable strict mode only for workers with live verification receipts;
+8. run `codexdevteam host-bootstrap` and explicitly activate with `host-run`.
+
+For a configured fresh project where plan creation and activation are both
+authorized, `codexdevteam host-run --project <path> --brief <file>
+--confirm-plan-write --confirm-activation` chains planner invocation, plan
+validation, inactive state bootstrap, exclusive HEAD activation, and supervised
+execution. It refuses to start unless strict builders, an independent checker,
+verification commands, and fresh capacity are configured.
 
 The `codexdevteam init` command stages packaged framework defaults and an
 installation marker as one directory rename. The bundled Codex planner is a
@@ -24,6 +29,14 @@ candidate with a configuration placeholder for its concrete model; no workers
 are active. The marker starts with `active_head: null` and `activated: false`,
 and installation never acquires HEAD. Live runtime/write/CONTROL smoke steps
 remain required before strict mode or activation.
+
+`host-plan` invokes only the configured `head_candidate` using a read-only
+runtime request. It validates the returned strict JSON through the same task
+protocol and PLAN parser used by the kernel, rejects invalid dependencies and
+control-path ownership, and creates `PLAN.md` exclusively. It never replaces an
+existing plan or activates HEAD. Task-state bootstrap and supervisor activation
+remain separate explicit steps unless the combined `host-run --brief` path is
+chosen.
 
 Before gate runs, configure Git to ignore mutable runtime artifacts under
 `.codexdevteam/project/` while keeping project-owned configuration files
@@ -34,10 +47,11 @@ file. Commit the inactive framework defaults and any configuration intended
 to be shared before running a clean-worktree verification gate.
 
 Fresh installs also include `.codexdevteam/framework/task-routing.json`, which
-maps explicit `Task_Class` labels to abstract capability floors. Projects may
-edit the mapping to match their own configured `capability_order`; it selects
-no runtime or concrete model. Load it with `TaskClassPolicy.from_file()` and
-pass the resulting policy to the supervisor. Unknown task classes are refused.
+maps explicit `Task_Class` labels to capability floors and optional logical
+worker roles. Projects may edit the mapping to match their registry's
+`capability_order` and role names. It selects no runtime or concrete model.
+Unknown task classes, missing capability labels, absent roles, and checker-role
+assignments are refused; unavailable workers are never silently substituted.
 
 Fresh projects prefer safe modern defaults, including batch push behavior and deterministic pre-review gates where configured.
 
