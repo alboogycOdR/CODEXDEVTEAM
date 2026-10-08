@@ -56,6 +56,9 @@ generation routing remains disabled pending field measurement.
 
 ## Install into a project
 
+New developer? Start with the [no-nonsense new-project guide](docs/NEW_PROJECT_QUICKSTART.md)
+for a Windows brief-to-run walkthrough.
+
 Install the package, inspect the target, then create an inactive installation:
 
 ```powershell
