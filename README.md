@@ -58,8 +58,13 @@ python -m pip install .
 codexdevteam inspect --project C:\Projects\MY-PROJECT
 codexdevteam init --project C:\Projects\MY-PROJECT
 codexdevteam upgrade --project C:\Projects\MY-PROJECT
-codexdevteam usage --state-db C:\Projects\MY-PROJECT\.codexdevteam\project\state.sqlite
+codexdevteam usage --state-db C:\Projects\MY-PROJECT\.codexdevteam\state\state.sqlite
 ```
+
+Use an isolated Python environment for the v0.2 package and check
+`python -m pip show codexdevteam-kernel` plus `Get-Command codexdevteam`
+before onboarding. An older editable installation on `PATH` can run a
+different CLI version from the source currently being inspected.
 
 `init` supports fresh projects and non-destructive DEVDEPARTMENT sidecars. It
 does not take HEAD authority or activate supervision. Existing installations
