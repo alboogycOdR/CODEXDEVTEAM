@@ -70,6 +70,16 @@ def default_framework_files() -> dict[str, str]:
         "stale_after_seconds": 120,
         "workers": {},
     }
+    generation = {
+        "protocol_version": 1,
+        "auto_enabled": False,
+        "max_continuations": 2,
+        "practical_ceiling_tokens": 60000,
+        "tokens_per_line": 12,
+        "input_max_chars": 120000,
+        "output_limit_chars": 500000,
+        "timeout_seconds": 900,
+    }
     return {
         ".codexdevteam/framework/registry.template.json": _json(registry),
         ".codexdevteam/framework/verification.json": _json(verification),
@@ -77,6 +87,7 @@ def default_framework_files() -> dict[str, str]:
         ".codexdevteam/framework/interoperability.json": _json(interoperability),
         ".codexdevteam/framework/supervisor.json": _json(supervisor),
         ".codexdevteam/framework/capacity.template.json": _json(capacity),
+        ".codexdevteam/framework/generation.json": _json(generation),
         ".codexdevteam/framework/usage-rates.template.json": "[]\n",
         ".codexdevteam/framework/README.md": (
             "# CODEXDEVTEAM project setup\n\n"

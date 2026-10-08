@@ -49,6 +49,11 @@ Concrete model IDs are configuration, not architecture. The orchestrator may
 request roles and capability floors; dispatch selects only among configured,
 strict-verified workers that satisfy those requirements and current capacity.
 
+For fully specified new-file tasks, the optional [manual generation lane](docs/GENERATION_LANE.md)
+adapts the delivered DEVDEPARTMENT Wave O stream and verifier. It stages a bounded
+Codex draft for the ordinary maker, host commit, gate, and checker path. Automatic
+generation routing remains disabled pending field measurement.
+
 ## Install into a project
 
 Install the package, inspect the target, then create an inactive installation:

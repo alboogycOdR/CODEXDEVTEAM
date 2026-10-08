@@ -69,6 +69,11 @@ assignments are refused; unavailable workers are never silently substituted.
 
 Fresh projects prefer safe modern defaults, including batch push behavior and deterministic pre-review gates where configured.
 
+An optional manual generation lane for fully specified new-file tasks is described
+in [GENERATION_LANE.md](GENERATION_LANE.md). Its framework default has automatic
+routing disabled. Staging a task does not activate the supervisor; generated files
+still pass through the normal maker, host commit, gate, and checker workflow.
+
 ## Mode B — existing DEVDEPARTMENT project
 
 Detect and validate the incumbent installation.
