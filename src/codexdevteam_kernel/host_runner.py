@@ -10,6 +10,7 @@ from pathlib import Path
 from threading import Event
 
 from .gate import GateRunner
+from .generation import generation_maker_note, generation_prelaunch_ready
 from .host_config import WindowsHostConfig
 from .host_runtime import (HostRuntimeBindings, load_host_runtime,
                            load_runtime_capacity)
@@ -201,7 +202,8 @@ def build_host_cycle_inputs(config: WindowsHostConfig, bindings: HostRuntimeBind
     _verify_plan_matches_authoritative_state(config.project_root, store)
 
     pending = [task for task in store.list_tasks() if task.state.value == "pending"]
-    prompts = {task.task_id: render_maker_prompt(task) for task in pending}
+    prompts = {task.task_id: render_maker_prompt(task) + generation_maker_note(config, task, bindings)
+               for task in pending}
     invocation_ids = {task.task_id: "maker-" + uuid.uuid4().hex for task in pending}
     capacity = load_runtime_capacity(config, bindings)
     active = set(bindings.registry.active)
@@ -226,6 +228,8 @@ def build_host_cycle_inputs(config: WindowsHostConfig, bindings: HostRuntimeBind
         "project_root": config.project_root,
         "state_db_path": config.state_db,
         "allowed_environment": bindings.environment_allowlist,
+        "staged_worktree_ready": lambda task, worktree, base_ref: generation_prelaunch_ready(
+            config, task, bindings, worktree, base_ref),
     }
 
 

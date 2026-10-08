@@ -15,6 +15,7 @@ codexdevteam-codex-hook = "codexdevteam_kernel.codex_hook:main"
 codexdevteam-control = "codexdevteam_kernel.control_cli:main"
 codexdevteam = "codexdevteam_kernel.onboarding_cli:main"
 codexdevteam-fast-eval = "codexdevteam_kernel.fast_tier_eval_cli:main"
+codexdevteam-generate = "codexdevteam_kernel.generation:main"
 
 [tool.setuptools]
 package-dir = { "" = "src" }

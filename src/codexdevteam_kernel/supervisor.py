@@ -414,6 +414,7 @@ class Supervisor:
             state_db_path: str | Path | None = None,
             worktree_copy: tuple[str, ...] = (),
             allowed_environment: tuple[str, ...] = (),
+            staged_worktree_ready: Callable[[TaskRecord, Path, str], Mapping[str, str] | None] | None = None,
             task_health_samples: Mapping[str, StagnationSample] | None = None,
             stagnation_policy: Mapping[str, int] | None = None,
             fast_tier_runner: FastTierRunner | None = None,
@@ -500,6 +501,7 @@ class Supervisor:
                 project_root=project_root,
                 state_db_path=state_db_path, worktree_copy=worktree_copy,
                 allowed_environment=allowed_environment,
+                staged_worktree_ready=staged_worktree_ready,
                 defer_control_drain=True, now=now,
             ))
         return SupervisorLaunchCycleResult(dispatch, tuple(makers), notification_result)
@@ -559,7 +561,7 @@ class Supervisor:
         allowed_inputs = {
             "capacity", "task_prompts", "invocation_ids", "base_ref", "worktrees",
             "adapters", "max_tasks", "project_root", "state_db_path", "worktree_copy",
-            "allowed_environment", "task_health_samples", "stagnation_policy",
+            "allowed_environment", "staged_worktree_ready", "task_health_samples", "stagnation_policy",
             "fast_tier_runner", "fast_tier_worker_id", "fast_tier_logs",
             "fast_tier_adapters", "fast_tier_working_directory", "now",
         }
@@ -1095,6 +1097,7 @@ class Supervisor:
                             state_db_path: str | Path | None = None,
                             worktree_copy: tuple[str, ...] = (),
                             allowed_environment: tuple[str, ...] = (),
+                            staged_worktree_ready: Callable[[TaskRecord, Path, str], Mapping[str, str] | None] | None = None,
                             memory_injection: FactInjection | None = None,
                             defer_control_drain: bool = False,
                             _ownership_retry_attempt: int = 0,
@@ -1176,8 +1179,34 @@ class Supervisor:
                     now=now,
                 )
                 raise ValueError("bounded retry blocked because worktree validation failed") from exc
-        elif status.returncode or status.stdout.strip():
-            raise ValueError("maker worktree must be clean and verifiable before launch")
+        elif status.returncode:
+            raise ValueError("maker worktree status could not be verified before launch")
+        else:
+            verified_staged = (staged_worktree_ready(task, worktree, base_ref)
+                               if staged_worktree_ready is not None else None)
+            if status.stdout.strip():
+                if not isinstance(verified_staged, Mapping) or not verified_staged:
+                    raise ValueError("maker worktree must be clean or have a verified generation receipt")
+                raw_status = subprocess.run(
+                    ["git", "-C", str(worktree), "status", "--porcelain=v1", "-z",
+                     "--untracked-files=all", "--ignored=matching", "--no-renames"],
+                    capture_output=True, check=False,
+                )
+                if raw_status.returncode:
+                    raise ValueError("maker staged worktree status could not be verified")
+                observed = {entry for entry in raw_status.stdout.split(b"\0") if entry}
+                for path, digest in verified_staged.items():
+                    if (not isinstance(path, str) or not isinstance(digest, str)
+                            or not re.fullmatch(r"[0-9a-f]{64}", digest)
+                            or normalize_repo_path(path) != path):
+                        raise ValueError("generation receipt includes an unsafe staged path")
+                    target = worktree.joinpath(*path.split("/"))
+                    if (not target.is_file()
+                            or hashlib.sha256(target.read_bytes()).hexdigest() != digest):
+                        raise ValueError("generation staged file changed before maker launch")
+                expected = {b"?? " + path.encode("utf-8") for path in verified_staged}
+                if observed != expected:
+                    raise ValueError("maker staged worktree differs from its generation receipt")
 
         database = Path(state_db_path) if state_db_path is not None else self.store.path
         if database.is_symlink():

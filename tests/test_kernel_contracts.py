@@ -2011,6 +2011,50 @@ class SupervisorTests(unittest.TestCase):
                 base_ref=base, worktrees=manager, adapters={"codex": adapter}, now=105)
         self.assertEqual(len(adapter.requests), 1)
 
+    def test_supervisor_accepts_only_exact_host_staged_generation_files(self):
+        project, base, task = self.prepare_claimed_maker("TASK-GENERATED-DRAFT")
+        manager = GitWorktreeManager(project, Path(self.temp.name) / "managed-generated-draft")
+        worktree = manager.create(task.task_id, f"codexdevteam/{task.task_id}", base).path
+        output = worktree / "src" / "generated.py"
+        output.parent.mkdir(parents=True)
+        output.write_text("value = 1\n", encoding="utf-8")
+        digest = hashlib.sha256(output.read_bytes()).hexdigest()
+        adapter = self.FakeInvocationAdapter()
+        with self.assertRaisesRegex(ValueError, "clean or have a verified"):
+            self.supervisor.invoke_claimed_task(
+                self.lease, task.task_id, invocation_id="maker:generated-refused",
+                prompt="inspect draft", base_ref=base, worktrees=manager,
+                adapters={"codex": adapter}, now=104)
+        with self.assertRaisesRegex(ValueError, "clean or have a verified"):
+            self.supervisor.invoke_claimed_task(
+                self.lease, task.task_id, invocation_id="maker:generated-noop",
+                prompt="inspect draft", base_ref=base, worktrees=manager,
+                adapters={"codex": adapter},
+                staged_worktree_ready=lambda *_: True, now=104)
+        extra = worktree / "src" / "extra.py"
+        extra.write_text("unexpected = True\n", encoding="utf-8")
+        with self.assertRaisesRegex(ValueError, "differs from its generation receipt"):
+            self.supervisor.invoke_claimed_task(
+                self.lease, task.task_id, invocation_id="maker:generated-extra",
+                prompt="inspect draft", base_ref=base, worktrees=manager,
+                adapters={"codex": adapter},
+                staged_worktree_ready=lambda *_: {"src/generated.py": digest}, now=104)
+        extra.unlink()
+        with self.assertRaisesRegex(ValueError, "changed before maker launch"):
+            self.supervisor.invoke_claimed_task(
+                self.lease, task.task_id, invocation_id="maker:generated-hash",
+                prompt="inspect draft", base_ref=base, worktrees=manager,
+                adapters={"codex": adapter},
+                staged_worktree_ready=lambda *_: {"src/generated.py": "0" * 64}, now=104)
+        self.assertEqual(adapter.requests, [])
+        result = self.supervisor.invoke_claimed_task(
+            self.lease, task.task_id, invocation_id="maker:generated-accepted",
+            prompt="inspect draft", base_ref=base, worktrees=manager,
+            adapters={"codex": adapter},
+            staged_worktree_ready=lambda *_: {"src/generated.py": digest}, now=104)
+        self.assertEqual(result.invocation.status, "succeeded")
+        self.assertEqual(len(adapter.requests), 1)
+
     @unittest.skipUnless(os.name == "nt", "Windows host-commit integration")
     def test_supervisor_host_commits_only_after_windows_job_quiescence_proof(self):
         from dataclasses import replace
