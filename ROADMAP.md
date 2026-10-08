@@ -553,12 +553,14 @@ authorization; after activation, the system owns planning and task progression.
   passed on candidate commit `37765a273064fa506753cee17e3aec743bf72466` for
   Windows and Linux compatibility jobs with Python 3.11 and 3.12. Linux remains
   compatibility CI only and is not part of supervised maker execution.
-- [ ] Publish v0.2 release notes that state proven behavior, enabled runtimes,
+- [x] Publish v0.2 release notes that state proven behavior, enabled runtimes,
   host limitations, recovery steps, and any remaining parity gaps.
   - [x] Finalize release notes against the bounded live pilot, strict-worker
     receipts, and the known hosted-CI baseline. Set package/framework metadata
     to `0.2.0` and verify the built wheel and all five installed entry points.
-    Publication remains part of the v0.2 release decision.
+    Released on 2026-10-08 as
+    [v0.2.0](https://github.com/alboogycOdR/CODEXDEVTEAM/releases/tag/v0.2.0)
+    from merge commit `45fb2fc8b42f8934f47e0873fc5c6ba8139a6438`.
 
 ### v0.2 release gates
 

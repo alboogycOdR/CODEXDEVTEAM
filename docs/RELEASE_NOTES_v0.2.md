@@ -1,13 +1,16 @@
 # CODEXDEVTEAM v0.2 — Release Notes
 
-**Release status:** not ready for release. These notes describe the current
-verified development state; they do not declare v0.2 complete or authorize a
-release. The three-task strict Windows pilot completed with a manually seeded
-capacity snapshot. Two subsequent runs used live Codex app-server capacity and
-completed maker, gate, checker, and integration for one task and then three
-tasks. Configured subscription-dollar spend remains unknown because the local
-account does not expose per-model charges and no attribution rates were
-configured.
+**Released 2026-10-08.** v0.2.0 supports standalone, Windows-first supervised
+development from a project brief through validated planning, bounded
+maker/checker work, mechanical gates, and integration. The host stays parked
+until an operator explicitly activates it. Ubuntu is compatibility CI only;
+DEVDEPARTMENT handover is outside this release.
+
+The three-task strict Windows pilot used a manually seeded capacity snapshot.
+Two later runs used live Codex app-server capacity and completed maker, gate,
+checker, and integration for one task and then three tasks. Subscription-dollar
+spend remains unknown because the local account exposes no per-model charges
+and no attribution rates were configured.
 
 ## What v0.2 adds
 
@@ -99,7 +102,10 @@ configured.
   3.11, installed into a disposable target, and all five packaged entry points
   passed their help/fail-closed smoke checks. The v0.2.0 wheel metadata and
   `codexdevteam_kernel.__version__` both report `0.2.0`; all five entry points
-  passed against the installed wheel after the version bump.
+  passed against the installed wheel after the version bump. Rebuilding from
+  merged commit `45fb2fc8b42f8934f47e0873fc5c6ba8139a6438` produced wheel
+  SHA-256 `0b34b3771ec862c6601f332b9a7b78eca82e2cf74ae0f82638f59504c3cb8044`;
+  the installed package and all five entry-point checks passed again.
 - Disposable Windows `host-preflight` on 2026-10-07 used the default live
   Codex app-server capacity source, reported both configured workers ready,
   and left the project parked without dispatch. This verifies the local
@@ -108,6 +114,8 @@ configured.
   recovery verified the Windows Job Object process tree quiescent. A later
   corrected disposable fixture completed the full path; both outcomes and the
   fixture requirements are recorded in `docs/RUNTIME_SMOKE.md`.
-- Latest hosted CI run [37691384320](https://github.com/alboogycOdR/CODEXDEVTEAM/actions/runs/37691384320)
-  passed for candidate commit `37765a273064fa506753cee17e3aec743bf72466` on
-  Windows and Ubuntu compatibility jobs with Python 3.11 and 3.12.
+- Hosted candidate run [37691384320](https://github.com/alboogycOdR/CODEXDEVTEAM/actions/runs/37691384320)
+  passed on all four Windows/Ubuntu compatibility × Python 3.11/3.12 jobs.
+- Post-merge run [37728131521](https://github.com/alboogycOdR/CODEXDEVTEAM/actions/runs/37728131521)
+  passed on all four jobs for release commit
+  `45fb2fc8b42f8934f47e0873fc5c6ba8139a6438`.
