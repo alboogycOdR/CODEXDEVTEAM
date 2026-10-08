@@ -153,6 +153,7 @@ class GenerationContext:
     protected_paths: tuple[str, ...]
     worker_id: str
     worker_identity: WorkerIdentity
+    reasoning_effort: str | None
     nonce: str
     packet: str
     packet_sha256: str
@@ -210,6 +211,8 @@ def prepare_generation(project: str | Path, task_id: str, manifest_path: str | P
     worker = chosen[0]
     if worker.control_mode != "strict" or worker.identity.runtime != "codex":
         raise ValueError("generation requires a live-verified strict Codex maker")
+    role_policy = bindings.registry.policy_for_role(worker.identity.role)
+    reasoning_effort = role_policy.reasoning_effort if role_policy else None
     checkers = [item for item in bindings.registry.active_workers()
                 if item.identity.role == config.checker_role]
     if any((item.identity.runtime, item.identity.model) ==
@@ -295,7 +298,7 @@ def prepare_generation(project: str | Path, task_id: str, manifest_path: str | P
         blockers.append("generation packet exceeds configured input limit")
     return GenerationContext(config, policy_config, task, manifest, manifest_sha,
                              bindings.protected_paths, worker.identity.unit_id,
-                             worker.identity, nonce, packet,
+                             worker.identity, reasoning_effort, nonce, packet,
                              hashlib.sha256(packet.encode("utf-8")).hexdigest(),
                              tuple(blockers), tuple(signals))
 
@@ -406,6 +409,7 @@ def _invoke_codex(context: GenerationContext, prompt: str,
             writable=False,
             output_limit_chars=context.policy.output_limit_chars,
             cancel_event=cancel,
+            reasoning_effort=context.reasoning_effort,
         )
         return CodexExecAdapter().invoke(request)
 
@@ -443,7 +447,8 @@ def _stage_files(context: GenerationContext, parsed, lease: HeadLease,
             "packet_sha256": context.packet_sha256,
             "generator": {"unit_id": context.worker_identity.unit_id,
                           "runtime": context.worker_identity.runtime,
-                          "model": context.worker_identity.model},
+                          "model": context.worker_identity.model,
+                          "reasoning_effort": context.reasoning_effort},
             "files": hashes,
             "verify_ok": finding.ok,
             "verify_findings": [item.__dict__ for item in finding.findings],
@@ -477,6 +482,7 @@ def _prepare_run_state(context: GenerationContext, run_dir: Path,
         "packet_sha256": context.packet_sha256, "unit_id": context.worker_id,
         "runtime": context.worker_identity.runtime,
         "model": context.worker_identity.model,
+        "reasoning_effort": context.reasoning_effort,
     }
     if contract_path.exists():
         if contract_path.is_symlink() or not contract_path.is_file():
@@ -574,6 +580,7 @@ def stage_generation(context: GenerationContext, *,
                 "invocation_id": result.invocation_id, "task_id": result.task_id,
                 "purpose": result.purpose, "role": result.role,
                 "unit_id": result.unit_id, "runtime": result.runtime, "model": result.model,
+                "reasoning_effort": context.reasoning_effort,
                 "status": result.status, "exit_code": result.exit_code,
                 "input_tokens": result.input_tokens, "output_tokens": result.output_tokens,
                 "cached_input_tokens": result.cached_input_tokens,
@@ -642,12 +649,17 @@ def _validated_generation_files(config: WindowsHostConfig, task: TaskRecord,
     generator = receipt.get("generator")
     worker = (bindings.registry.defined.get(generator.get("unit_id"))
               if isinstance(generator, dict) else None)
+    role_policy = (bindings.registry.policy_for_role(worker.identity.role)
+                   if worker is not None else None)
+    expected_generator = ({"unit_id": worker.identity.unit_id,
+                           "runtime": worker.identity.runtime,
+                           "model": worker.identity.model,
+                           "reasoning_effort": role_policy.reasoning_effort if role_policy else None}
+                          if worker is not None else None)
     if (worker is None or worker.identity.unit_id not in bindings.registry.active
             or worker.control_mode != "strict"
             or worker.identity.role != config.maker_role
-            or {"unit_id": worker.identity.unit_id,
-                "runtime": worker.identity.runtime,
-                "model": worker.identity.model} != generator):
+            or expected_generator != generator):
         raise ValueError("generation receipt generator no longer matches an active strict maker")
     files = receipt.get("files")
     if not isinstance(files, dict) or not files:
@@ -776,7 +788,8 @@ def main(argv: list[str] | None = None) -> int:
                     "signals": list(context.signals),
                     "generator": {"unit_id": context.worker_identity.unit_id,
                                   "runtime": context.worker_identity.runtime,
-                                  "model": context.worker_identity.model},
+                                  "model": context.worker_identity.model,
+                                  "reasoning_effort": context.reasoning_effort},
                 }
             elif args.command == "packet":
                 if context.blockers:

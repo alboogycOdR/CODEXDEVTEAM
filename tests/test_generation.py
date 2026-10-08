@@ -4,6 +4,7 @@ import hashlib
 import json
 import subprocess
 import tempfile
+import threading
 import time
 import unittest
 from pathlib import Path
@@ -11,7 +12,8 @@ from types import SimpleNamespace
 from unittest.mock import patch
 
 from codexdevteam_kernel.generation import (
-    generation_maker_note, generation_report, prepare_generation, stage_generation,
+    _invoke_codex, generation_maker_note, generation_report, prepare_generation,
+    stage_generation,
 )
 from codexdevteam_kernel.generation_stream import (
     PathPolicy, materialize, parse_segments,
@@ -63,7 +65,9 @@ class GenerationTests(unittest.TestCase):
             registry=SimpleNamespace(active_workers=lambda: [
                 SimpleNamespace(identity=self.maker, control_mode="strict"),
                 SimpleNamespace(identity=self.checker, control_mode="strict"),
-            ], active=("maker", "checker"), defined={
+            ], policy_for_role=lambda role: SimpleNamespace(reasoning_effort="high")
+            if role == "implementation" else None,
+            active=("maker", "checker"), defined={
                 "maker": SimpleNamespace(identity=self.maker, control_mode="strict"),
                 "checker": SimpleNamespace(identity=self.checker, control_mode="strict"),
             }),
@@ -101,6 +105,17 @@ class GenerationTests(unittest.TestCase):
         self.assertEqual(sorted(parsed.complete_files()), ["src/first.py", "src/second.py"])
         self.assertEqual(parsed.complete_files()["src/second.py"].content,
                          "def second():\n    return 2\n")
+
+    def test_generator_uses_the_selected_maker_role_effort(self):
+        context = self._prepare()
+        self.assertEqual(context.reasoning_effort, "high")
+        with patch("codexdevteam_kernel.generation.CodexExecAdapter.invoke",
+                   return_value=object()) as invoke:
+            _invoke_codex(context, context.packet, threading.Event())
+        request = invoke.call_args.args[0]
+        self.assertEqual(request.reasoning_effort, "high")
+        self.assertEqual(request.identity, self.maker)
+        self.assertFalse(request.writable)
 
     def test_stage_continuation_and_ready_receipt_bind_files(self):
         context = self._prepare()
@@ -156,6 +171,12 @@ class GenerationTests(unittest.TestCase):
         (worktree / "src" / "extra.py").unlink()
         ready = self.root / ".codexdevteam" / "state" / "generation" / "TASK-1" / "ready.json"
         receipt = json.loads(ready.read_text(encoding="utf-8"))
+        self.assertEqual(receipt["generator"]["reasoning_effort"], "high")
+        receipt["generator"]["reasoning_effort"] = "low"
+        ready.write_text(json.dumps(receipt), encoding="utf-8")
+        with self.assertRaisesRegex(ValueError, "generator no longer matches"):
+            generation_maker_note(context.config, context.task, self.bindings)
+        receipt["generator"]["reasoning_effort"] = "high"
         receipt["generator"]["model"] = "unregistered-model"
         ready.write_text(json.dumps(receipt), encoding="utf-8")
         with self.assertRaisesRegex(ValueError, "generator no longer matches"):
