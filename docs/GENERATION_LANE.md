@@ -79,6 +79,8 @@ runs a read-only Codex invocation in an isolated temporary Git directory, record
 each invocation, accepts only complete nonce-delimited files, and can continue at
 the first unfinished file up to the configured limit. An incomplete result returns
 nonzero and keeps its host-owned state for a bounded resume with the same command.
+Generation uses the selected maker's configured model and role reasoning effort;
+the receipt pins both for comparison with an ordinary maker run.
 
 After a staged result, run `codexdevteam-generate ... verify` for manifest,
 syntax, export, and placeholder findings. Then start the ordinary supervised host
