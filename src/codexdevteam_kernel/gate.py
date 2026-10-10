@@ -355,7 +355,9 @@ class GateRunner:
         if not configured:
             return {f"base_{name}": CheckResult("skipped", "no command configured")
                     for name in names}
-        with tempfile.TemporaryDirectory(prefix="codexdevteam-baseline-") as temp_root:
+        temporary = tempfile.TemporaryDirectory(
+            prefix="codexdevteam-baseline-", ignore_cleanup_errors=True)
+        with temporary as temp_root:
             baseline = Path(temp_root) / "checkout"
             added = subprocess.run(["git", "-C", str(self.repository), "worktree", "add",
                                     "--detach", str(baseline), base_sha], capture_output=True,
@@ -378,13 +380,40 @@ class GateRunner:
                         self._run_command(f"base_{name}", tuple(argv), baseline,
                                           baseline_env, timeout_seconds))
             finally:
-                removed = subprocess.run(["git", "-C", str(self.repository), "worktree", "remove",
-                                          "--force", str(baseline)], capture_output=True,
-                                         text=True, encoding="utf-8", errors="replace", timeout=60)
-                if removed.returncode:
-                    results["baseline_cleanup"] = CheckResult(
-                        "failed", removed.stderr.strip() or "baseline worktree cleanup failed")
+                results["baseline_cleanup"] = self._cleanup_baseline(baseline, temporary)
             return results
+
+    def _cleanup_baseline(self, baseline: Path,
+                          temporary: tempfile.TemporaryDirectory) -> CheckResult:
+        # This fallback owns only the newly allocated temporary root. Never prune
+        # the repository or infer cleanup from the first Git command's exit code.
+        if baseline != Path(temporary.name) / "checkout":
+            return CheckResult("failed", "baseline cleanup path does not match temporary root")
+        try:
+            subprocess.run(["git", "-C", str(self.repository), "worktree", "remove",
+                            "--force", str(baseline)], capture_output=True, text=True,
+                           encoding="utf-8", errors="replace", timeout=60)
+        except (OSError, subprocess.TimeoutExpired):
+            pass  # Positive absence checks below are authoritative.
+        try:
+            temporary.cleanup()
+        except OSError:
+            pass
+        try:
+            listed = subprocess.run(
+                ["git", "-C", str(self.repository), "worktree", "list", "--porcelain", "-z"],
+                capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=60)
+        except (OSError, subprocess.TimeoutExpired):
+            return CheckResult("failed", "could not verify baseline worktree registration cleanup")
+        if listed.returncode:
+            return CheckResult("failed", "could not verify baseline worktree registration cleanup")
+        expected = os.path.normcase(os.path.abspath(baseline))
+        registered = any(
+            os.path.normcase(os.path.abspath(record[len("worktree "):])) == expected
+            for record in listed.stdout.split("\0") if record.startswith("worktree "))
+        if os.path.lexists(baseline) or os.path.lexists(temporary.name) or registered:
+            return CheckResult("failed", "baseline files or worktree registration remain after cleanup")
+        return CheckResult("passed", "baseline directory and worktree registration removed")
 
     @staticmethod
     def _compare_baseline(checks: Mapping[str, CheckResult]
