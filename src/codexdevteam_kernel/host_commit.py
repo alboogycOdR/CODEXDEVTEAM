@@ -121,7 +121,7 @@ def validate_owned_retry_worktree(repository: str | Path, worktree: str | Path,
     base = _read_parent_tree(git_dir, repo, expected_parent)
     limits = CommitLimits(ignored_allowlist=(".codexdevteam/control",
                                              *ignored_allowlist), settle_seconds=0)
-    snapshot = _capture_snapshot(tree, base, task, git_dir, repo, expected_parent, limits,
+    snapshot = _capture_snapshot(tree, base, task, admin, repo, expected_parent, limits,
                                  limits.ignored_allowlist, core_options)
     outside = tuple(path for path in snapshot.changed
                     if not decide_write(path, task.owned_paths).allowed)
@@ -129,7 +129,7 @@ def validate_owned_retry_worktree(repository: str | Path, worktree: str | Path,
         raise _Refused("OUTSIDE_TERRITORY", "retry worktree still contains out-of-scope paths",
                        *outside)
     # A second snapshot closes a race between the check and runtime launch.
-    confirmed = _capture_snapshot(tree, base, task, git_dir, repo, expected_parent, limits,
+    confirmed = _capture_snapshot(tree, base, task, admin, repo, expected_parent, limits,
                                   limits.ignored_allowlist, core_options)
     if _snapshot_signature(snapshot) != _snapshot_signature(confirmed):
         raise _Refused("LATE_WRITE_DETECTED", "retry worktree changed during validation",
@@ -152,7 +152,7 @@ def quarantine_out_of_scope_changes(repository: str | Path, worktree: str | Path
     core_options = _effective_core_options(git_dir)
     limits = CommitLimits(ignored_allowlist=(".codexdevteam/control",
                                              *ignored_allowlist), settle_seconds=0)
-    snapshot = _capture_snapshot(tree, base, task, git_dir, repo, expected_parent, limits,
+    snapshot = _capture_snapshot(tree, base, task, admin, repo, expected_parent, limits,
                                  limits.ignored_allowlist, core_options)
     refused = tuple(sorted(set(paths)))
     if not refused or any(path not in snapshot.changed for path in refused):
@@ -160,7 +160,7 @@ def quarantine_out_of_scope_changes(repository: str | Path, worktree: str | Path
                        *refused)
     if any(decide_write(path, task.owned_paths).allowed for path in refused):
         raise _Refused("QUARANTINE", "refusal paths include task-owned content", *refused)
-    confirmed = _capture_snapshot(tree, base, task, git_dir, repo, expected_parent, limits,
+    confirmed = _capture_snapshot(tree, base, task, admin, repo, expected_parent, limits,
                                   limits.ignored_allowlist, core_options)
     if _snapshot_signature(snapshot) != _snapshot_signature(confirmed):
         raise _Refused("QUIESCENCE_UNPROVEN", "worktree changed before quarantine", *refused)
@@ -225,7 +225,7 @@ def quarantine_out_of_scope_changes(repository: str | Path, worktree: str | Path
         data = _git(git_dir, repo, "cat-file", "blob", blob).stdout
         _write_restored_file(tree, target, data, mode)
 
-    remaining = _capture_snapshot(tree, base, task, git_dir, repo, expected_parent, limits,
+    remaining = _capture_snapshot(tree, base, task, admin, repo, expected_parent, limits,
                                   limits.ignored_allowlist, core_options)
     outside = tuple(path for path in remaining.changed
                     if not decide_write(path, task.owned_paths).allowed)
@@ -651,6 +651,11 @@ def _capture_snapshot(worktree: Path, base: dict[str, tuple[int, str]], task: Ta
             status_env = _git_env(index_file=index_path)
             _git(git_dir, worktree, "read-tree", parent, env=status_env)
             status_args = ["-c", "core.fsmonitor=false", "-c", "core.untrackedCache=false"]
+            # Windows has no Git-compatible executable permission bit. Compare
+            # bytes here and preserve trusted parent modes below, regardless of
+            # builder-writable core.filemode or the builder index.
+            if os.name == "nt":
+                status_args.extend(("-c", "core.filemode=false"))
             for key, value in core_options:
                 status_args.extend(("-c", f"{key}={value}"))
             status = _git(git_dir, worktree, *status_args, "status", "--porcelain=v2", "-z",
@@ -682,6 +687,15 @@ def _capture_snapshot(worktree: Path, base: dict[str, tuple[int, str]], task: Ta
                     if relative in changed_paths or relative not in base:
                         raise _Refused("LINK", f"directory link or reparse point: {relative}", relative)
                     dirs.remove(name)
+                    continue
+                # Explicitly ignored generated trees may contain package-manager
+                # junctions. Only prune a real directory that Git itself reports
+                # ignored, and never hide tracked descendants or a linked root.
+                if (relative + "/" in ignored_paths
+                        and _allowed_ignored(relative, allowlist)
+                        and not any(entry == relative or entry.startswith(relative + "/")
+                                    for entry in base)):
+                    dirs.remove(name)
             for name in names:
                 path = root_path / name
                 relative = path.relative_to(worktree).as_posix()
@@ -699,7 +713,11 @@ def _capture_snapshot(worktree: Path, base: dict[str, tuple[int, str]], task: Ta
                     info = path.stat(follow_symlinks=False)
                     if not stat.S_ISREG(info.st_mode):
                         raise _Refused("PATH_FORM", f"changed path is not a regular file: {relative}", relative)
-                    mode = 0o100755 if info.st_mode & 0o111 else 0o100644
+                    if os.name == "nt":
+                        parent_mode = base.get(relative, (0o100644, ""))[0]
+                        mode = parent_mode if parent_mode in {0o100644, 0o100755} else 0o100644
+                    else:
+                        mode = 0o100755 if info.st_mode & 0o111 else 0o100644
                     is_changed = (relative in changed_paths or relative not in base
                                   or (relative in base and base[relative][0] != mode))
                     if is_changed and info.st_size > limits.max_file_bytes:
@@ -722,7 +740,7 @@ def _capture_snapshot(worktree: Path, base: dict[str, tuple[int, str]], task: Ta
                 signature = (info.st_dev, info.st_ino, info.st_size, info.st_mtime_ns, info.st_mode)
                 files[relative] = _FileSnapshot(relative, data, mode, signature, content_sha256)
         # Git may not report a mode change when core.filemode is disabled. Add
-        # portable executable-bit changes from the filesystem walk explicitly.
+        # POSIX executable-bit changes from the filesystem walk explicitly.
         changed_paths.update(path for path, item in files.items()
                              if path in base and base[path][0] != item.mode)
         return _CapturedSnapshot(files, tuple(sorted(changed_paths)),

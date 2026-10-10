@@ -186,6 +186,136 @@ class HostCommitTests(unittest.TestCase):
         mode = self.git("-C", str(self.repo), "ls-tree", result.sha, "src/modify.txt").split()[0]
         self.assertEqual(mode, "100755")
 
+    def seed_ignored_dependencies(self, tracked=False):
+        (self.worktree / ".gitignore").write_text("node_modules/\n")
+        self.git("-C", str(self.worktree), "add", ".gitignore")
+        dependencies = self.worktree / "node_modules"
+        dependencies.mkdir()
+        if tracked:
+            (dependencies / "tracked.txt").write_text("trusted\n")
+            self.git("-C", str(self.worktree), "add", "--force", "node_modules/tracked.txt")
+        self.git("-C", str(self.worktree), "commit", "-m", "ignored dependency fixture")
+        self.parent = self.head()
+        return dependencies
+
+    def make_junction(self, link, target):
+        subprocess.run(["cmd", "/c", "mklink", "/J", str(link), str(target)],
+                       capture_output=True, check=True)
+
+    @unittest.skipUnless(os.name == "nt", "Windows dependency junction")
+    def test_allowlisted_ignored_real_dependency_directory_prunes_junction_subtree(self):
+        dependencies = self.seed_ignored_dependencies()
+        self.make_junction(dependencies / "package", self.repo / "docs")
+        (self.worktree / "src" / "added.txt").write_text("owned\n")
+        result = self.commit(limits=CommitLimits(ignored_allowlist=("node_modules",), settle_seconds=0))
+        self.assertEqual(result.status, "committed", result.reasons)
+        self.assertEqual(result.paths, ("src/added.txt",))
+        self.assertNotIn("node_modules", self.git("-C", str(self.repo), "ls-tree", "-r", result.sha))
+
+    @unittest.skipUnless(os.name == "nt", "Windows dependency junction")
+    def test_allowlisted_ignored_dependency_root_junction_still_refused(self):
+        dependencies = self.seed_ignored_dependencies()
+        dependencies.rmdir()
+        self.make_junction(dependencies, self.repo / "docs")
+        self.assert_refused(self.commit(limits=CommitLimits(
+            ignored_allowlist=("node_modules",), settle_seconds=0)), "LINK")
+
+    @unittest.skipUnless(os.name == "nt", "Windows tracked ignored dependencies")
+    def test_allowlisted_ignored_directory_does_not_hide_tracked_content(self):
+        dependencies = self.seed_ignored_dependencies(tracked=True)
+        (dependencies / "tracked.txt").write_text("unowned edit\n")
+        self.assert_refused(self.commit(limits=CommitLimits(
+            ignored_allowlist=("node_modules",), settle_seconds=0)), "OUTSIDE_TERRITORY")
+
+    def seed_executable_parent(self):
+        # Git's index sets the fixture mode independently of Windows stat/chmod.
+        for relative in ("src/modify.txt", "docs/unowned.txt"):
+            self.git("-C", str(self.worktree), "update-index", "--chmod=+x", relative)
+        self.git("-C", str(self.worktree), "commit", "-m", "trusted executable parent")
+        self.parent = self.head()
+
+    def tree_mode(self, sha, relative):
+        return self.git("-C", str(self.repo), "ls-tree", sha, relative).split()[0]
+
+    @unittest.skipUnless(os.name == "nt", "Windows trusted executable modes")
+    def test_windows_untouched_unowned_executable_allows_owned_commit(self):
+        self.seed_executable_parent()
+        self.git("-C", str(self.worktree), "config", "core.filemode", "true")
+        (self.worktree / "src" / "added.txt").write_text("owned change\n")
+        result = self.commit()
+        self.assertEqual(result.status, "committed", result.reasons)
+        self.assertEqual(result.paths, ("src/added.txt",))
+        self.assertEqual(self.tree_mode(result.sha, "docs/unowned.txt"), "100755")
+
+    @unittest.skipUnless(os.name == "nt", "Windows trusted executable modes")
+    def test_windows_owned_executable_content_change_preserves_parent_mode(self):
+        self.seed_executable_parent()
+        (self.worktree / "src" / "modify.txt").write_text("new executable content\n")
+        result = self.commit()
+        self.assertEqual(result.status, "committed", result.reasons)
+        self.assertEqual(self.tree_mode(result.sha, "src/modify.txt"), "100755")
+
+    @unittest.skipUnless(os.name == "nt", "Windows deterministic new modes")
+    def test_windows_new_executable_extension_commits_as_regular_file(self):
+        (self.worktree / "src" / "new.exe").write_bytes(b"new executable extension")
+        result = self.commit()
+        self.assertEqual(result.status, "committed", result.reasons)
+        self.assertEqual(self.tree_mode(result.sha, "src/new.exe"), "100644")
+
+    @unittest.skipUnless(os.name == "nt", "Windows trusted executable modes")
+    def test_windows_outside_executable_content_change_is_refused(self):
+        self.seed_executable_parent()
+        (self.worktree / "docs" / "unowned.txt").write_text("unowned content change\n")
+        self.git("-C", str(self.worktree), "add", "docs/unowned.txt")
+        self.git("-C", str(self.worktree), "update-index", "--chmod=-x", "docs/unowned.txt")
+        result = self.commit()
+        self.assert_refused(result, "OUTSIDE_TERRITORY")
+        self.assertEqual(self.head(), self.parent)
+
+    @unittest.skipUnless(os.name == "nt", "Windows ignores builder mode metadata")
+    def test_windows_builder_index_and_core_filemode_cannot_change_parent_modes(self):
+        self.seed_executable_parent()
+        for value in ("true", "false"):
+            with self.subTest(core_filemode=value):
+                self.git("-C", str(self.worktree), "config", "core.filemode", value)
+                self.git("-C", str(self.worktree), "update-index", "--chmod=-x", "docs/unowned.txt")
+                self.git("-C", str(self.worktree), "update-index", "--chmod=-x", "src/modify.txt")
+                self.git("-C", str(self.worktree), "update-index", "--chmod=+x", "src/delete.txt")
+                (self.worktree / "src" / "modify.txt").write_text(value + "\n")
+                result = self.commit(invocation_id="mode-" + value)
+                self.assert_refused(result, "INDEX_TAMPERED")
+                self.assertEqual(self.head(), self.parent)
+                self.assertEqual(self.tree_mode(self.parent, "src/modify.txt"), "100755")
+                self.assertEqual(self.tree_mode(self.parent, "docs/unowned.txt"), "100755")
+                self.assertEqual(self.tree_mode(self.parent, "src/delete.txt"), "100644")
+
+    @unittest.skipUnless(os.name == "nt", "Windows executable quarantine recovery")
+    def test_windows_quarantine_restores_executable_and_retry_commits_owned_change(self):
+        from codexdevteam_kernel.host_commit import (
+            quarantine_out_of_scope_changes, validate_owned_retry_worktree,
+        )
+        self.seed_executable_parent()
+        (self.worktree / "src" / "modify.txt").write_text("owned change\n")
+        (self.worktree / "docs" / "unowned.txt").write_text("refused bytes\n")
+        result = self.commit()
+        self.assert_refused(result, "OUTSIDE_TERRITORY")
+        quarantine, restored = quarantine_out_of_scope_changes(
+            self.repo, self.worktree, self.task, task_branch=self.branch,
+            expected_parent=self.parent, invocation_id="quarantine-mode",
+            paths=("docs/unowned.txt",),
+        )
+        self.assertEqual(restored, ("docs/unowned.txt",))
+        self.assertEqual((quarantine / "files" / "0000.bin").read_text(), "refused bytes\n")
+        self.assertEqual((self.worktree / "docs" / "unowned.txt").read_text(), "keep me\n")
+        self.assertEqual(validate_owned_retry_worktree(
+            self.repo, self.worktree, self.task, task_branch=self.branch,
+            expected_parent=self.parent,
+        ), ("src/modify.txt",))
+        result = self.commit(invocation_id="retry-mode")
+        self.assertEqual(result.status, "committed", result.reasons)
+        self.assertEqual(self.tree_mode(result.sha, "docs/unowned.txt"), "100755")
+        self.assertEqual(self.tree_mode(result.sha, "src/modify.txt"), "100755")
+
     def test_casefold_path_alias_is_rejected(self):
         from codexdevteam_kernel.host_commit import _Refused
         with self.assertRaisesRegex(_Refused, "case-folded path alias"):
